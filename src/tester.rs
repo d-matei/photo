@@ -1,4 +1,4 @@
-cause eframe::egui;
+use eframe::egui;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb, RgbImage};
 use raw_photo_editor::pipeline::clarity::{apply_clarity_rgb, ClarityConfig};
