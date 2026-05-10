@@ -1,0 +1,57 @@
+You’re very close. Since the files are already on GitHub, the next things are about making collaboration safe and organized.
+
+What to do next:
+1. Make sure both of you have the repo cloned on your own computers.
+2. Invite your partner to the GitHub repository as a collaborator.
+3. Decide a simple workflow:
+   - you work mainly on backend/Rust
+   - she works mainly on frontend
+   - each feature goes on its own branch
+4. Pull the latest version from GitHub before starting work each day.
+5. Push your changes regularly.
+
+A simple workflow that should work well:
+- `main` branch stays stable
+- you create branches like:
+  - `backend/dehaze-tuning`
+  - `backend/raw-loader`
+- she creates branches like:
+  - `frontend/tester-ui`
+  - `frontend/layout-pass`
+- when one of you finishes something, merge it into `main`
+
+The commands you’ll probably use most are:
+
+```powershell
+git pull
+git checkout -b backend/some-feature
+git add .
+git commit -m "Implement some feature"
+git push -u origin backend/some-feature
+```
+
+And to get changes from the other person:
+
+```powershell
+git checkout main
+git pull
+```
+
+Very important practical advice:
+- don’t both edit the same files at the same time unless necessary
+- separate responsibilities early
+- define how frontend talks to backend before she starts building too much UI
+
+For your project, a good split is:
+- you: Rust engine, image processing, preview/export logic
+- her: interface, controls, visual layout, frontend interaction
+
+What I would recommend right now:
+- make sure your local folder is connected cleanly to the GitHub repo
+- create a small README section for collaboration rules
+- define the future boundary between frontend and backend
+
+If you want, I can help you with the exact next step depending on your situation:
+- if your local folder is not connected to the GitHub repo yet, I can help set that up
+- if it is connected already, I can help you create a clean branch workflow
+- or I can help structure the project now so you and your partner can work in parallel without conflicts
