@@ -1,0 +1,236 @@
+:root {
+  --bg: #f3efe6;
+  --panel: rgba(255, 252, 246, 0.95);
+  --panel-border: rgba(76, 63, 45, 0.12);
+  --text: #2f2418;
+  --muted: #74624d;
+  --accent: #b35c2e;
+  --accent-soft: rgba(179, 92, 46, 0.14);
+  --shadow: 0 24px 60px rgba(64, 43, 20, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255, 222, 173, 0.55), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(189, 225, 255, 0.45), transparent 28%),
+    linear-gradient(135deg, #efe3d0 0%, #f6f2eb 52%, #e7eee8 100%);
+}
+
+.app-shell {
+  width: min(1780px, calc(100vw - 24px));
+  margin: 24px auto;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 18px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+}
+
+.controls {
+  padding: 24px;
+}
+
+.preview {
+  padding: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+.intro,
+.status,
+.notes li,
+.file-picker span,
+.control-label-row output {
+  color: var(--muted);
+}
+
+.file-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 24px 0;
+  padding: 16px;
+  background: var(--accent-soft);
+  border-radius: 18px;
+}
+
+.file-picker input {
+  width: 100%;
+}
+
+.control-group {
+  margin-bottom: 20px;
+}
+
+.control-label-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  background: #2f2418;
+  color: #fff;
+}
+
+button:last-child {
+  background: #ddd2c1;
+  color: var(--text);
+}
+
+.notes {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(76, 63, 45, 0.12);
+}
+
+.notes ul {
+  padding-left: 18px;
+  margin-bottom: 0;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 24px;
+}
+
+.canvas-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.canvas-grid.single-preview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.canvas-grid.single-preview canvas {
+  width: auto;
+  max-width: 100%;
+  max-height: 72vh;
+  margin: 0 auto;
+}
+
+.canvas-grid.landscape-stack {
+  grid-template-columns: 1fr;
+}
+
+.canvas-grid.landscape-stack canvas {
+  width: auto;
+  max-width: 100%;
+  max-height: 34vh;
+  margin: 0 auto;
+}
+
+.canvas-card {
+  margin: 0;
+  padding: 10px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(76, 63, 45, 0.08);
+}
+
+.canvas-card figcaption {
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+
+.hold-hint {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 8px;
+  border: 1px solid rgba(76, 63, 45, 0.16);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+
+.hidden-canvas {
+  display: none;
+}
+
+canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 14px;
+  image-rendering: auto;
+  background:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.06) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.06) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.06) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.06) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+@media (max-width: 1040px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .canvas-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-header {
+    flex-direction: column;
+    align-items: start;
+  }
+}

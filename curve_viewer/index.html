@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curve Viewer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">Standalone Tool</p>
+      <h1>Adjustment Curve Viewer</h1>
+      <p class="intro">
+        Visual reference for the curve shapes currently used in the RAW editor project.
+        This viewer is separate from the active app and exists only to inspect the math.
+      </p>
+      <p class="warning">
+        This is a manual snapshot of the current formulas. It does not update automatically when the main project code changes.
+      </p>
+    </header>
+
+    <section class="legend">
+      <div class="legend-item"><span class="swatch blue"></span><span>Main curve</span></div>
+      <div class="legend-item"><span class="swatch orange"></span><span>Reference / comparison</span></div>
+    </section>
+
+    <section id="cards" class="card-grid"></section>
+  </main>
+
+  <template id="cardTemplate">
+    <article class="card">
+      <div class="card-header">
+        <p class="group"></p>
+        <h2></h2>
+      </div>
+      <p class="description"></p>
+      <canvas width="560" height="300"></canvas>
+      <div class="axis-box">
+        <p class="axis-label x-axis"></p>
+        <p class="axis-label y-axis"></p>
+      </div>
+      <div class="notes"></div>
+    </article>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

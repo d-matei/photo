@@ -1,0 +1,17 @@
+[package]
+name = "raw-photo-editor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "raw_photo_editor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "raw-photo-editor"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.31"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp", "bmp"] }
+rfd = "0.15"

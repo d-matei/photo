@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAW Editor Playground</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="panel controls">
+      <div class="panel-header">
+        <p class="eyebrow">Development Playground</p>
+        <h1>Adjustment Tuning Lab</h1>
+        <p class="intro">
+          Load a photo, move the sliders, and evaluate how the current algorithms behave before we lock them into the backend.
+        </p>
+      </div>
+
+      <label class="file-picker">
+        <span>Choose Test Image</span>
+        <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp">
+      </label>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="exposureSlider">Exposure</label>
+          <output id="exposureValue">0</output>
+        </div>
+        <input id="exposureSlider" type="range" min="-100" max="100" step="1" value="0">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="saturationSlider">Saturation</label>
+          <output id="saturationValue">0.00</output>
+        </div>
+        <input id="saturationSlider" type="range" min="-1" max="1" step="0.01" value="0">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="contrastSlider">Contrast</label>
+          <output id="contrastValue">0.00</output>
+        </div>
+        <input id="contrastSlider" type="range" min="-1" max="1" step="0.01" value="0">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="contrastRefSlider">Contrast Midpoint</label>
+          <output id="contrastRefValue">128</output>
+        </div>
+        <input id="contrastRefSlider" type="range" min="0" max="255" step="1" value="128">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="contrastGammaSlider">Contrast Gamma</label>
+          <output id="contrastGammaValue">0.50</output>
+        </div>
+        <input id="contrastGammaSlider" type="range" min="0.05" max="2" step="0.01" value="0.5">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="dehazeSlider">Dehaze</label>
+          <output id="dehazeValue">0.00</output>
+        </div>
+        <input id="dehazeSlider" type="range" min="-1" max="1" step="0.01" value="0">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="dehazeBlockSlider">Dehaze Block Size</label>
+          <output id="dehazeBlockValue">16</output>
+        </div>
+        <input id="dehazeBlockSlider" type="range" min="4" max="128" step="4" value="16">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label-row">
+          <label for="claritySlider">Clarity</label>
+          <output id="clarityValue">0.00</output>
+        </div>
+        <input id="claritySlider" type="range" min="-1" max="1" step="0.01" value="0">
+      </div>
+
+      <div class="button-row">
+        <button id="resetButton" type="button">Reset Sliders</button>
+        <button id="holdOriginalButton" type="button">Hold To View Original</button>
+      </div>
+
+      <section class="notes">
+        <h2>Current Math</h2>
+        <ul>
+          <li>Exposure: simple uniform value shift in 8-bit space</li>
+          <li>Saturation: move RGB away from or toward luminance gray</li>
+          <li>Contrast: your custom linear positive / non-linear negative algorithm</li>
+          <li>Dehaze: local overlap analysis based on low-contrast windows</li>
+          <li>Clarity: midtone local contrast plus adjacent-zone edge emphasis</li>
+        </ul>
+      </section>
+    </section>
+
+    <section class="panel preview">
+      <div class="preview-header">
+        <div>
+          <p class="eyebrow">Preview</p>
+          <h2>Live Result</h2>
+        </div>
+        <p id="statusText" class="status">Load an image to begin.</p>
+      </div>
+
+      <div id="canvasGrid" class="canvas-grid single-preview">
+        <figure class="canvas-card">
+          <figcaption id="previewCaption">Adjusted</figcaption>
+          <canvas id="previewCanvas"></canvas>
+          <p class="hold-hint">Hold the button or press and hold <kbd>Space</kbd> to preview the original.</p>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <canvas id="originalCanvas" class="hidden-canvas" aria-hidden="true"></canvas>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
