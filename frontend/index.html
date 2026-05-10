@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Photo Editor</title>
+    <link rel="stylesheet" href="./src/styles.css">
+  </head>
+  <body>
+    <main class="editor-shell">
+      <aside class="sidebar" aria-label="Editing controls">
+        <header class="brand-bar">
+          <div>
+            <p class="app-title">Raw Photo Editor</p>
+          </div>
+          <div class="history-actions" aria-label="Adjustment history">
+            <button class="icon-button" type="button" title="Undo adjustment" id="undoButton" aria-label="Undo adjustment" disabled>
+              <span aria-hidden="true">&#8592;</span>
+            </button>
+            <button class="icon-button" type="button" title="Redo adjustment" id="redoButton" aria-label="Redo adjustment" disabled>
+              <span aria-hidden="true">&#8594;</span>
+            </button>
+            <button class="icon-button" type="button" title="Reset adjustments" id="resetButton" aria-label="Reset adjustments">
+              <span aria-hidden="true">&#8634;</span>
+            </button>
+          </div>
+        </header>
+
+        <label class="file-control">
+          <span>Choose file</span>
+          <input id="imageInput" type="file" accept="image/*">
+        </label>
+
+        <section class="control-section" aria-labelledby="lightHeading">
+          <h2 id="lightHeading">Light</h2>
+          <div id="lightControls" class="control-stack"></div>
+        </section>
+
+        <section class="control-section" aria-labelledby="presenceHeading">
+          <h2 id="presenceHeading">Effects</h2>
+          <div id="presenceControls" class="control-stack"></div>
+        </section>
+
+        <section class="control-section" aria-labelledby="colorHeading">
+          <h2 id="colorHeading">Color</h2>
+          <div id="colorControls" class="control-stack"></div>
+        </section>
+
+        <section class="control-section" aria-labelledby="gradingHeading">
+          <div class="section-heading-row">
+            <h2 id="gradingHeading">Color Grading</h2>
+            <div class="segmented-control" role="group" aria-label="Color grading mode">
+              <button class="segment-button is-active" type="button" data-grading-mode="sliders">Sliders</button>
+              <button class="segment-button" type="button" data-grading-mode="wheels">Wheels</button>
+            </div>
+          </div>
+          <div id="colorGradingControls" class="zone-stack"></div>
+        </section>
+
+        <details class="control-section" open>
+          <summary>HSL Colors</summary>
+          <div id="hslControls" class="hsl-grid"></div>
+        </details>
+
+        <section class="control-section" aria-labelledby="maskHeading">
+          <h2 id="maskHeading">Masks</h2>
+          <div class="tool-grid" role="group" aria-label="Mask tools">
+            <button class="tool-button mask-tile" type="button" data-mask-tool="linear-gradient">
+              <span class="mask-icon linear-icon" aria-hidden="true">
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+              </span>
+              <span>Linear</span>
+            </button>
+            <button class="tool-button mask-tile" type="button" data-mask-tool="radial-gradient">
+              <span class="mask-icon radial-icon" aria-hidden="true"></span>
+              <span>Radial</span>
+            </button>
+            <button class="tool-button mask-tile" type="button" data-mask-tool="brush">
+              <span class="mask-icon brush-icon" aria-hidden="true"></span>
+              <span>Brush</span>
+            </button>
+          </div>
+          <p id="maskStatus" class="hint-text">No mask selected.</p>
+        </section>
+      </aside>
+
+      <section class="workspace" aria-label="Image workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Preview</p>
+            <p id="statusText" class="status">Open an image to begin building the editor workflow.</p>
+          </div>
+          <div class="topbar-actions">
+            <button id="fitButton" type="button">Fit</button>
+            <button id="beforeAfterButton" type="button">Before</button>
+            <button id="exportButton" type="button" disabled>Export</button>
+          </div>
+        </header>
+
+        <div class="image-stage" id="imageStage">
+          <figure class="preview-frame">
+            <img id="previewImage" alt="">
+            <figcaption id="emptyState">
+              <strong>No image loaded</strong>
+              <span>The frontend owns this viewer and the controls. Rendering will come from the Rust backend bridge later.</span>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+    </main>
+
+    <script src="./src/app.js"></script>
+  </body>
+</html>
