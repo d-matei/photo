@@ -1,6 +1,10 @@
 #[derive(Debug, Clone)]
 pub struct BasicToneAdjustments {
     pub exposure: f32,
+    pub whites: f32,
+    pub highlights: f32,
+    pub shadows: f32,
+    pub blacks: f32,
     pub contrast: f32,
     pub contrast_ref: f32,
     pub contrast_gamma: f32,
@@ -10,6 +14,10 @@ impl Default for BasicToneAdjustments {
     fn default() -> Self {
         Self {
             exposure: 0.0,
+            whites: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            blacks: 0.0,
             contrast: 0.0,
             contrast_ref: 128.0,
             contrast_gamma: 0.5,
@@ -22,6 +30,18 @@ impl BasicToneAdjustments {
         let mut count = 0;
 
         if self.exposure != 0.0 {
+            count += 1;
+        }
+        if self.whites != 0.0 {
+            count += 1;
+        }
+        if self.highlights != 0.0 {
+            count += 1;
+        }
+        if self.shadows != 0.0 {
+            count += 1;
+        }
+        if self.blacks != 0.0 {
             count += 1;
         }
         if self.contrast != 0.0 {

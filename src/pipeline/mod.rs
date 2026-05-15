@@ -6,6 +6,7 @@ pub mod dehaze;
 pub mod exposure;
 pub mod masking;
 pub mod saturation;
+pub mod tonal_ranges;
 
 #[derive(Debug, Clone)]
 pub struct Pipeline {

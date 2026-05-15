@@ -7,9 +7,10 @@ use raw_photo_editor::pipeline::contrast::{adjust_contrast_value, ContrastConfig
 use raw_photo_editor::pipeline::dehaze::{apply_dehaze_rgb, DehazeConfig};
 use raw_photo_editor::pipeline::exposure::adjust_exposure_value;
 use raw_photo_editor::pipeline::saturation::adjust_saturation_pixel;
+use raw_photo_editor::pipeline::tonal_ranges::{adjust_tonal_ranges_pixel, TonalRangeAdjustments};
 use rfd::FileDialog;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ops::RangeInclusive;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 const PREVIEW_MAX_SIDE: u32 = 1600;
@@ -35,6 +36,10 @@ pub fn run() -> eframe::Result<()> {
 #[derive(Debug, Clone, PartialEq)]
 struct UiParams {
     exposure: f32,
+    whites: f32,
+    highlights: f32,
+    shadows: f32,
+    blacks: f32,
     saturation: f32,
     contrast: f32,
     dehaze: f32,
@@ -54,6 +59,10 @@ impl Default for UiParams {
     fn default() -> Self {
         Self {
             exposure: 0.0,
+            whites: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            blacks: 0.0,
             saturation: 0.0,
             contrast: 0.0,
             dehaze: 0.0,
@@ -286,28 +295,70 @@ impl TesterApp {
         ui.add_space(8.0);
 
         let mut params_changed = false;
+        let defaults = UiParams::default();
         params_changed |= add_precise_slider_f32(
             ui,
             &mut self.params.exposure,
             -100.0..=100.0,
             "Exposure",
+            defaults.exposure,
+        );
+        params_changed |= add_precise_slider_f32(
+            ui,
+            &mut self.params.whites,
+            -100.0..=100.0,
+            "Whites",
+            defaults.whites,
+        );
+        params_changed |= add_precise_slider_f32(
+            ui,
+            &mut self.params.highlights,
+            -100.0..=100.0,
+            "Highlights",
+            defaults.highlights,
+        );
+        params_changed |= add_precise_slider_f32(
+            ui,
+            &mut self.params.shadows,
+            -100.0..=100.0,
+            "Shadows",
+            defaults.shadows,
+        );
+        params_changed |= add_precise_slider_f32(
+            ui,
+            &mut self.params.blacks,
+            -100.0..=100.0,
+            "Blacks",
+            defaults.blacks,
         );
         params_changed |= add_precise_slider_f32(
             ui,
             &mut self.params.saturation,
             -1.0..=1.0,
             "Saturation",
+            defaults.saturation,
         );
         params_changed |= add_precise_slider_f32(
             ui,
             &mut self.params.contrast,
             -1.0..=1.0,
             "Contrast",
+            defaults.contrast,
         );
-        params_changed |=
-            add_precise_slider_f32(ui, &mut self.params.dehaze, -1.0..=1.0, "Dehaze");
-        params_changed |=
-            add_precise_slider_f32(ui, &mut self.params.clarity, -1.0..=1.0, "Clarity");
+        params_changed |= add_precise_slider_f32(
+            ui,
+            &mut self.params.dehaze,
+            -1.0..=1.0,
+            "Dehaze",
+            defaults.dehaze,
+        );
+        params_changed |= add_precise_slider_f32(
+            ui,
+            &mut self.params.clarity,
+            -1.0..=1.0,
+            "Clarity",
+            defaults.clarity,
+        );
 
         ui.add_space(10.0);
         ui.collapsing("Advanced Tuning", |ui| {
@@ -316,12 +367,14 @@ impl TesterApp {
                 &mut self.params.contrast_reference,
                 0.0..=255.0,
                 "Contrast Midpoint",
+                defaults.contrast_reference,
             );
             params_changed |= add_precise_slider_f32(
                 ui,
                 &mut self.params.contrast_gamma,
                 0.1..=2.0,
                 "Contrast Gamma",
+                defaults.contrast_gamma,
             );
             params_changed |= add_precise_slider_usize(
                 ui,
@@ -329,18 +382,21 @@ impl TesterApp {
                 4..=64,
                 4.0,
                 "Dehaze Block Size",
+                defaults.dehaze_block_size,
             );
             params_changed |= add_precise_slider_f32(
                 ui,
                 &mut self.params.dehaze_negative_reference_offset,
                 0.0..=64.0,
                 "Dehaze Negative Ref Lift",
+                defaults.dehaze_negative_reference_offset,
             );
             params_changed |= add_precise_slider_f32(
                 ui,
                 &mut self.params.dehaze_positive_saturation_boost,
                 0.0..=2.0,
                 "Dehaze Positive Saturation",
+                defaults.dehaze_positive_saturation_boost,
             );
             params_changed |= add_precise_slider_usize(
                 ui,
@@ -348,24 +404,28 @@ impl TesterApp {
                 4..=64,
                 4.0,
                 "Clarity Block Size",
+                defaults.clarity_block_size,
             );
             params_changed |= add_precise_slider_f32(
                 ui,
                 &mut self.params.clarity_negative_reference_offset,
                 0.0..=64.0,
                 "Clarity Negative Ref Lift",
+                defaults.clarity_negative_reference_offset,
             );
             params_changed |= add_precise_slider_f32(
                 ui,
                 &mut self.params.clarity_positive_saturation_compensation,
                 0.0..=1.5,
                 "Clarity Positive Sat Compensation",
+                defaults.clarity_positive_saturation_compensation,
             );
             params_changed |= add_precise_slider_f32(
                 ui,
                 &mut self.params.clarity_negative_saturation_compensation,
                 0.0..=1.5,
                 "Clarity Negative Sat Compensation",
+                defaults.clarity_negative_saturation_compensation,
             );
         });
 
@@ -427,6 +487,7 @@ fn add_precise_slider_f32(
     value: &mut f32,
     range: RangeInclusive<f32>,
     text: &str,
+    reset_value: f32,
 ) -> bool {
     let min = *range.start();
     let max = *range.end();
@@ -455,8 +516,13 @@ fn add_precise_slider_f32(
 
         paint_slider(ui, track_rect, *visuals, normalized);
 
-        let is_active = response.is_pointer_button_down_on() || response.dragged();
-        if is_active {
+        if response.double_clicked() {
+            let next_value = reset_value.clamp(min, max);
+            if (*value - next_value).abs() > f32::EPSILON {
+                *value = next_value;
+                changed = true;
+            }
+        } else if response.is_pointer_button_down_on() || response.dragged() {
             if let Some(pointer) = response.interact_pointer_pos() {
                 let t = ((pointer.x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0);
                 let next_value = min + (max - min) * t;
@@ -483,6 +549,7 @@ fn add_precise_slider_usize(
     range: RangeInclusive<usize>,
     step_by: f64,
     text: &str,
+    reset_value: usize,
 ) -> bool {
     let step = step_by as usize;
     let min = *range.start();
@@ -519,8 +586,13 @@ fn add_precise_slider_usize(
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
-        let is_active = response.is_pointer_button_down_on() || response.dragged();
-        if is_active {
+        if response.double_clicked() {
+            let next_value = reset_value.clamp(min, max);
+            if *value != next_value {
+                *value = next_value;
+                changed = true;
+            }
+        } else if response.is_pointer_button_down_on() || response.dragged() {
             if let Some(pointer) = response.interact_pointer_pos() {
                 let t = ((pointer.x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0);
                 let raw_value = min as f32 + (max as f32 - min as f32) * t;
@@ -635,6 +707,18 @@ fn process_pipeline(
             pixel.r = adjust_exposure_value(pixel.r, params.exposure);
             pixel.g = adjust_exposure_value(pixel.g, params.exposure);
             pixel.b = adjust_exposure_value(pixel.b, params.exposure);
+        });
+    }
+
+    let tonal_adjustments = TonalRangeAdjustments {
+        whites: params.whites,
+        highlights: params.highlights,
+        shadows: params.shadows,
+        blacks: params.blacks,
+    };
+    if tonal_adjustments != TonalRangeAdjustments::default() {
+        pixels.iter_mut().for_each(|pixel| {
+            *pixel = adjust_tonal_ranges_pixel(*pixel, tonal_adjustments);
         });
     }
 

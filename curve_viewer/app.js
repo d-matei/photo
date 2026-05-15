@@ -1,5 +1,93 @@
 const curves = [
   {
+    group: "Tonal Ranges",
+    title: "Whites Influence Mask",
+    description: "The Whites control uses an S curve: slow tail, steeper middle, then a soft ease into the clipped max zone.",
+    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
+    yLabel: "How much the Whites slider affects that luminance.",
+    domain: [0, 1],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Whites mask",
+        color: "#245c73",
+        fn: x => highRangeWeight(x, 0.60, 0.82)
+      }
+    ],
+    notes: [
+      "Strong influence zone: `82%..100%` luminance.",
+      "Falloff zone: S-curve rise from `60%..82%` luminance.",
+      "Source: `src/pipeline/tonal_ranges.rs` -> `whites_weight`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Tonal Ranges",
+    title: "Highlights Influence Mask",
+    description: "The Highlights control uses two S curves, one on each side of the max zone.",
+    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
+    yLabel: "How much the Highlights slider affects that luminance.",
+    domain: [0, 1],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Highlights mask",
+        color: "#245c73",
+        fn: x => middleRangeWeight(x, 0.45, 0.62, 0.78, 0.92)
+      }
+    ],
+    notes: [
+      "Strong influence zone: `62%..78%` luminance.",
+      "Falloff zones: S-curve rise from `45%..62%` and S-curve fall from `78%..92%`.",
+      "Source: `src/pipeline/tonal_ranges.rs` -> `highlights_weight`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Tonal Ranges",
+    title: "Shadows Influence Mask",
+    description: "The Shadows control uses two S curves, one on each side of the max zone.",
+    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
+    yLabel: "How much the Shadows slider affects that luminance.",
+    domain: [0, 1],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Shadows mask",
+        color: "#245c73",
+        fn: x => middleRangeWeight(x, 0.08, 0.22, 0.38, 0.55)
+      }
+    ],
+    notes: [
+      "Strong influence zone: `22%..38%` luminance.",
+      "Falloff zones: S-curve rise from `8%..22%` and S-curve fall from `38%..55%`.",
+      "Source: `src/pipeline/tonal_ranges.rs` -> `shadows_weight`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Tonal Ranges",
+    title: "Blacks Influence Mask",
+    description: "The Blacks control uses an S curve at the low end of the spectrum.",
+    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
+    yLabel: "How much the Blacks slider affects that luminance.",
+    domain: [0, 1],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Blacks mask",
+        color: "#245c73",
+        fn: x => lowRangeWeight(x, 0.18, 0.40)
+      }
+    ],
+    notes: [
+      "Strong influence zone: `0%..18%` luminance.",
+      "Falloff zone: S-curve fall from `18%..40%` luminance.",
+      "Source: `src/pipeline/tonal_ranges.rs` -> `blacks_weight`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
     group: "Contrast",
     title: "Positive Contrast Slider Response",
     description: "The positive contrast slider is eased before it reaches the actual contrast formula. This makes low values gentler and high values still strong.",
@@ -562,4 +650,37 @@ function normalize(value, min, max) {
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
+}
+
+function highRangeWeight(x, activeStart, fullStart) {
+  if (x < activeStart) return 0;
+  if (x < fullStart) {
+    return sCurve(normalizeClamped(x, activeStart, fullStart));
+  }
+  return 1;
+}
+
+function lowRangeWeight(x, fullEnd, activeEnd) {
+  if (x <= fullEnd) return 1;
+  if (x <= activeEnd) {
+    return sCurve(1 - normalizeClamped(x, fullEnd, activeEnd));
+  }
+  return 0;
+}
+
+function middleRangeWeight(x, activeStart, fullStart, fullEnd, activeEnd) {
+  return Math.min(
+    highRangeWeight(x, activeStart, fullStart),
+    lowRangeWeight(x, fullEnd, activeEnd)
+  );
+}
+
+function sCurve(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
+}
+
+function normalizeClamped(value, min, max) {
+  if (max === min) return 0;
+  return Math.max(0, Math.min(1, (value - min) / (max - min)));
 }
