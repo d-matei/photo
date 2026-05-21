@@ -1,6 +1,9 @@
 pub mod adjustments;
 pub mod clarity;
 pub mod color;
+pub mod color_balance;
+pub mod color_grading;
+pub mod color_mixer;
 pub mod contrast;
 pub mod dehaze;
 pub mod exposure;

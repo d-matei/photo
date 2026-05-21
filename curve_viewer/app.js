@@ -1,89 +1,377 @@
 const curves = [
   {
     group: "Tonal Ranges",
-    title: "Whites Influence Mask",
-    description: "The Whites control uses an S curve: slow tail, steeper middle, then a soft ease into the clipped max zone.",
+    title: "Basic Tone Influence Masks",
+    description: "Whites, Highlights, Shadows, and Blacks use luminance masks with strong zones and soft S-curve falloffs.",
     xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
-    yLabel: "How much the Whites slider affects that luminance.",
+    yLabel: "How much each tonal slider affects that luminance.",
     domain: [0, 1],
     range: [0, 1],
     lines: [
       {
-        label: "Whites mask",
+        label: "Blacks",
         color: "#245c73",
+        fn: x => lowRangeWeight(x, 0.18, 0.40)
+      },
+      {
+        label: "Shadows",
+        color: "#c96d32",
+        fn: x => middleRangeWeight(x, 0.08, 0.22, 0.38, 0.55)
+      },
+      {
+        label: "Highlights",
+        color: "#7c9b3d",
+        fn: x => middleRangeWeight(x, 0.45, 0.62, 0.78, 0.92)
+      },
+      {
+        label: "Whites",
+        color: "#9c5ca8",
         fn: x => highRangeWeight(x, 0.60, 0.82)
       }
     ],
     notes: [
-      "Strong influence zone: `82%..100%` luminance.",
-      "Falloff zone: S-curve rise from `60%..82%` luminance.",
-      "Source: `src/pipeline/tonal_ranges.rs` -> `whites_weight`.",
+      "Blacks strong zone: `0%..18%`; falloff: `18%..40%`.",
+      "Shadows strong zone: `22%..38%`; falloffs: `8%..22%` and `38%..55%`.",
+      "Highlights strong zone: `62%..78%`; falloffs: `45%..62%` and `78%..92%`.",
+      "Whites strong zone: `82%..100%`; falloff: `60%..82%`.",
+      "Source: `src/pipeline/tonal_ranges.rs` -> `blacks_weight`, `shadows_weight`, `highlights_weight`, `whites_weight`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
   },
   {
-    group: "Tonal Ranges",
-    title: "Highlights Influence Mask",
-    description: "The Highlights control uses two S curves, one on each side of the max zone.",
-    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
-    yLabel: "How much the Highlights slider affects that luminance.",
+    group: "Exposure",
+    title: "Exposure Channel Transfer",
+    description: "Exposure currently shifts every RGB channel by the same slider amount and clips the result to the valid 0..255 range.",
+    xLabel: "Original channel value normalized from 0 = black to 1 = white.",
+    yLabel: "Adjusted channel value normalized from 0 = black to 1 = white.",
     domain: [0, 1],
     range: [0, 1],
     lines: [
       {
-        label: "Highlights mask",
+        label: "Exposure +50",
         color: "#245c73",
-        fn: x => middleRangeWeight(x, 0.45, 0.62, 0.78, 0.92)
+        fn: x => clamp01(x + 50 / 255)
+      },
+      {
+        label: "Exposure -50",
+        color: "#c96d32",
+        fn: x => clamp01(x - 50 / 255)
+      },
+      {
+        label: "Unchanged",
+        color: "#7c9b3d",
+        fn: x => x
       }
     ],
     notes: [
-      "Strong influence zone: `62%..78%` luminance.",
-      "Falloff zones: S-curve rise from `45%..62%` and S-curve fall from `78%..92%`.",
-      "Source: `src/pipeline/tonal_ranges.rs` -> `highlights_weight`.",
+      "Formula: `new_channel = old_channel + slider_value`, clipped to `0..255`.",
+      "The graph uses `+50` and `-50` as examples.",
+      "Source: `src/pipeline/exposure.rs` -> `adjust_exposure_value`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
   },
   {
-    group: "Tonal Ranges",
-    title: "Shadows Influence Mask",
-    description: "The Shadows control uses two S curves, one on each side of the max zone.",
-    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
-    yLabel: "How much the Shadows slider affects that luminance.",
-    domain: [0, 1],
-    range: [0, 1],
+    group: "Saturation",
+    title: "Saturation Slider Response",
+    description: "Saturation changes the distance between each channel and the luminance-weighted grayscale reference.",
+    xLabel: "Saturation slider value.",
+    yLabel: "Distance-from-gray multiplier.",
+    domain: [-1, 1],
+    range: [0, 2],
     lines: [
       {
-        label: "Shadows mask",
+        label: "Scale",
         color: "#245c73",
-        fn: x => middleRangeWeight(x, 0.08, 0.22, 0.38, 0.55)
+        fn: x => Math.max(0, 1 + x)
       }
     ],
     notes: [
-      "Strong influence zone: `22%..38%` luminance.",
-      "Falloff zones: S-curve rise from `8%..22%` and S-curve fall from `38%..55%`.",
-      "Source: `src/pipeline/tonal_ranges.rs` -> `shadows_weight`.",
+      "Formula: `gray = 0.299R + 0.587G + 0.114B`.",
+      "Formula: `new_channel = gray + (old_channel - gray) * (1 + slider)`.",
+      "`-1` fully desaturates to grayscale; `0` is unchanged; `1` doubles distance from gray.",
+      "Source: `src/pipeline/saturation.rs` -> `adjust_saturation_pixel`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
   },
   {
-    group: "Tonal Ranges",
-    title: "Blacks Influence Mask",
-    description: "The Blacks control uses an S curve at the low end of the spectrum.",
+    group: "Color Grading",
+    title: "Temperature And Tint Influence",
+    description: "Temperature and Tint are currently simple global color-balance controls with fixed hue directions and full influence everywhere.",
     xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
-    yLabel: "How much the Blacks slider affects that luminance.",
+    yLabel: "How much Temperature/Tint affects that luminance.",
     domain: [0, 1],
     range: [0, 1],
     lines: [
       {
-        label: "Blacks mask",
+        label: "Global influence",
         color: "#245c73",
-        fn: x => lowRangeWeight(x, 0.18, 0.40)
+        fn: () => 1
       }
     ],
     notes: [
-      "Strong influence zone: `0%..18%` luminance.",
-      "Falloff zone: S-curve fall from `18%..40%` luminance.",
-      "Source: `src/pipeline/tonal_ranges.rs` -> `blacks_weight`.",
+      "Temperature positive direction: warm amber/orange hue around `38deg`.",
+      "Temperature negative direction: cool blue hue around `220deg`.",
+      "Tint positive direction: magenta hue around `300deg`.",
+      "Tint negative direction: green hue around `120deg`.",
+      "This is intentionally a simple first model, not a physically accurate RAW white-balance transform.",
+      "Source: `src/pipeline/color_balance.rs`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Grading",
+    title: "Temperature And Tint Strength",
+    description: "Temperature and Tint use a simple linear slider response before adding their fixed hue direction.",
+    xLabel: "Absolute Temperature/Tint slider value.",
+    yLabel: "Maximum per-channel color shift in 8-bit channel units.",
+    domain: [0, 100],
+    range: [0, 48],
+    lines: [
+      {
+        label: "Current strength",
+        color: "#245c73",
+        fn: x => x / 100 * 48
+      }
+    ],
+    notes: [
+      "Current max shift is `48` channel units at slider value `100`.",
+      "The hue direction depends on slider sign: warm/cool for Temperature, magenta/green for Tint.",
+      "Source: `src/pipeline/color_balance.rs` -> `MAX_COLOR_BALANCE_SHIFT`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Grading",
+    title: "Hue To RGB Coefficients",
+    description: "Color grading, temperature/tint, and color balance convert a selected hue into RGB channel coefficients.",
+    xLabel: "Hue angle in degrees.",
+    yLabel: "RGB coefficient from 0 to 1.",
+    domain: [0, 360],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Red coefficient",
+        color: "#c73a32",
+        fn: x => hueCoefficient(x).r
+      },
+      {
+        label: "Green coefficient",
+        color: "#5f9b42",
+        fn: x => hueCoefficient(x).g
+      },
+      {
+        label: "Blue coefficient",
+        color: "#376ab5",
+        fn: x => hueCoefficient(x).b
+      }
+    ],
+    notes: [
+      "`0deg` = red, `60deg` = yellow, `120deg` = green, `180deg` = cyan, `240deg` = blue, `300deg` = magenta.",
+      "These coefficients are multiplied by intensity and added to RGB channels.",
+      "Source: `src/pipeline/color_grading.rs` and `src/pipeline/color_balance.rs` -> `hue_to_rgb_coefficients`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Grading",
+    title: "Color Grading Zone Masks",
+    description: "The color grading masks use 5% S-curve falloffs, while the global mask keeps nearly full influence across the whole image.",
+    xLabel: "Pixel luminance normalized from 0 = black to 1 = white.",
+    yLabel: "How much each color grading zone affects that luminance.",
+    domain: [0, 1],
+    range: [0, 1],
+    controls: [
+      {
+        key: "referenceShift",
+        label: "Color reference",
+        min: -100,
+        max: 100,
+        value: 0,
+        format: value => {
+          const coefficient = colorReferenceCoefficient(value);
+          return `${value.toFixed(0)} (${coefficient.toFixed(2)}x)`;
+        }
+      }
+    ],
+    lines: [
+      {
+        label: "Global",
+        color: "#9c5ca8",
+        fn: x => colorGradingGlobalWeight(x)
+      },
+      {
+        label: "Shadows",
+        color: "#245c73",
+        fn: (x, state) => colorGradingShadowsWeight(x, colorReferenceCoefficient(state.referenceShift))
+      },
+      {
+        label: "Midtones",
+        color: "#c96d32",
+        fn: (x, state) => colorGradingMidtonesWeight(x, colorReferenceCoefficient(state.referenceShift))
+      },
+      {
+        label: "Highlights",
+        color: "#7c9b3d",
+        fn: (x, state) => colorGradingHighlightsWeight(x, colorReferenceCoefficient(state.referenceShift))
+      }
+    ],
+    notes: [
+      "Global: peaks at `50%` luminance and falls with an S-shaped curve to about `86%` influence at `0%` and `100%`.",
+      "Shadows: max zone `0%..32%`, strongest at `0%`, gently slopes down to `90%` influence at `32%`.",
+      "Midtones: max zone `34%..66%`, strongest at `50%`, gently slopes down to `90%` influence at both edges.",
+      "Highlights: max zone `68%..100%`, strongest at `100%`, gently slopes down to `90%` influence at `68%`.",
+      "All outer boundaries use 5% S-curve falloffs: shadows `32%..37%`, midtones `29%..34%` and `66%..71%`, highlights `63%..68%`.",
+      "The color reference slider multiplies every luminance boundary by `2^(slider / 100)`, so `-100 = 0.5x`, `0 = 1.0x`, `100 = 2.0x`.",
+      "Source: `src/pipeline/color_grading.rs` -> `shadows_weight`, `midtones_weight`, `highlights_weight`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Grading",
+    title: "Color Grading Reference Slider Response",
+    description: "The color grading reference slider turns into a multiplier that shifts all color grading luminance-zone boundaries.",
+    xLabel: "Color Reference slider value.",
+    yLabel: "Boundary multiplier.",
+    domain: [-100, 100],
+    range: [0.5, 2],
+    lines: [
+      {
+        label: "Coefficient",
+        color: "#245c73",
+        fn: x => colorReferenceCoefficient(x)
+      }
+    ],
+    notes: [
+      "Formula: `coefficient = 2^(slider / 100)`.",
+      "`-100 = 0.5x`, `0 = 1.0x`, `100 = 2.0x`.",
+      "Source: `src/pipeline/color_grading.rs` -> `reference_shift_to_coefficient`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Mixer",
+    title: "Color Mixer Hue Zone Masks",
+    description: "The HSL mixer uses 9 overlapping hue zones. Each zone peaks at its named hue and falls with an S curve toward neighboring hue centers.",
+    xLabel: "Hue angle in degrees around the color wheel.",
+    yLabel: "How much each color mixer zone affects that hue.",
+    domain: [0, 360],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Red",
+        color: "#c73a32",
+        fn: x => colorMixerZoneWeight(x, 0)
+      },
+      {
+        label: "Orange",
+        color: "#d47a2c",
+        fn: x => colorMixerZoneWeight(x, 1)
+      },
+      {
+        label: "Yellow",
+        color: "#c9ad2f",
+        fn: x => colorMixerZoneWeight(x, 2)
+      },
+      {
+        label: "Green",
+        color: "#5f9b42",
+        fn: x => colorMixerZoneWeight(x, 3)
+      },
+      {
+        label: "Aqua",
+        color: "#2aa49a",
+        fn: x => colorMixerZoneWeight(x, 4)
+      },
+      {
+        label: "Blue",
+        color: "#376ab5",
+        fn: x => colorMixerZoneWeight(x, 5)
+      },
+      {
+        label: "Purple",
+        color: "#7352aa",
+        fn: x => colorMixerZoneWeight(x, 6)
+      },
+      {
+        label: "Magenta",
+        color: "#b348a3",
+        fn: x => colorMixerZoneWeight(x, 7)
+      },
+      {
+        label: "Pink",
+        color: "#cf5d78",
+        fn: x => colorMixerZoneWeight(x, 8)
+      }
+    ],
+    notes: [
+      "Zone centers: Red `0deg`, Orange `30deg`, Yellow `60deg`, Green `120deg`, Aqua `180deg`, Blue `240deg`, Purple `270deg`, Magenta `300deg`, Pink `330deg`.",
+      "The hue slider moves each center toward its neighboring centers: for example Yellow at `-100` moves to Orange, and Yellow at `100` moves to Green.",
+      "Source: `src/pipeline/color_mixer.rs` -> `zone_weight` and `hue_shift_for_zone`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Mixer",
+    title: "Color Mixer Hue Slider Response",
+    description: "The Color Mixer hue slider moves a pure zone-center color toward its previous or next neighboring zone center.",
+    xLabel: "Hue slider value.",
+    yLabel: "Hue shift in degrees.",
+    domain: [-100, 100],
+    range: [-60, 60],
+    lines: [
+      {
+        label: "Yellow zone",
+        color: "#c9ad2f",
+        fn: x => colorMixerHueShift(2, x)
+      },
+      {
+        label: "Green zone",
+        color: "#5f9b42",
+        fn: x => colorMixerHueShift(3, x)
+      },
+      {
+        label: "Blue zone",
+        color: "#376ab5",
+        fn: x => colorMixerHueShift(5, x)
+      },
+      {
+        label: "Red zone",
+        color: "#c73a32",
+        fn: x => colorMixerHueShift(0, x)
+      }
+    ],
+    notes: [
+      "Different zones can have different degree ranges because the 9 color centers are not evenly spaced.",
+      "Example: Yellow at `-100` shifts `-30deg` toward Orange; Yellow at `100` shifts `+60deg` toward Green.",
+      "Source: `src/pipeline/color_mixer.rs` -> `hue_shift_for_zone`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
+    group: "Color Mixer",
+    title: "Color Mixer Saturation And Luminance Response",
+    description: "Color Mixer Saturation and Luminance are linear slider responses, later multiplied by the hue-zone influence mask.",
+    xLabel: "Color Mixer slider value.",
+    yLabel: "Effective value at full zone influence.",
+    domain: [-100, 100],
+    range: [-100, 100],
+    lines: [
+      {
+        label: "Luminance channel shift",
+        color: "#245c73",
+        fn: x => x
+      },
+      {
+        label: "Saturation percent mapped for display",
+        color: "#c96d32",
+        fn: x => x
+      }
+    ],
+    notes: [
+      "Luminance uses exposure-style shift: `channel + slider * zone_weight`.",
+      "Saturation uses `slider / 100 * zone_weight`, then the existing saturation formula.",
+      "Both are simple linear mappings before the hue-zone mask is applied.",
+      "Source: `src/pipeline/color_mixer.rs` -> `adjust_color_mixer_pixel`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
   },
@@ -138,54 +426,32 @@ const curves = [
   },
   {
     group: "Clarity",
-    title: "Positive Clarity Slider Response",
-    description: "Positive clarity now follows the saved older positive-dehaze-style response before the global-reference experiment.",
-    xLabel: "Raw clarity slider value.",
-    yLabel: "Effective positive clarity response value.",
+    title: "Clarity Slider Response",
+    description: "Positive and negative clarity use different response powers, so they are easiest to compare on the same absolute slider-strength graph.",
+    xLabel: "Absolute clarity slider value.",
+    yLabel: "Effective clarity response magnitude.",
     domain: [0, 1],
     range: [0, 1],
     lines: [
       {
-        label: "Current positive response",
+        label: "Positive clarity",
         color: "#245c73",
         fn: x => Math.pow(x, 0.58)
       },
       {
-        label: "Linear reference",
+        label: "Negative clarity",
         color: "#c96d32",
-        fn: x => x
-      }
-    ],
-    notes: [
-      "Used in `clarity.rs` as `amount^0.58` for positive values.",
-      "This is the saved old positive-dehaze-style clarity response, so it builds faster than linear.",
-      "Source: `src/pipeline/clarity.rs` -> `clarity_signed_response`.",
-      "Auto-updates with project changes: No. This viewer is a manual snapshot."
-    ]
-  },
-  {
-    group: "Clarity",
-    title: "Negative Clarity Slider Response",
-    description: "Negative clarity follows the saved negative-dehaze-style response magnitude.",
-    xLabel: "Absolute value of the negative clarity slider.",
-    yLabel: "Effective negative clarity response magnitude.",
-    domain: [0, 1],
-    range: [0, 1],
-    lines: [
-      {
-        label: "Current negative response",
-        color: "#245c73",
         fn: x => Math.pow(x, 0.75)
       },
       {
         label: "Linear reference",
-        color: "#c96d32",
+        color: "#7c9b3d",
         fn: x => x
       }
     ],
     notes: [
-      "Used in `clarity.rs` as `-|amount|^0.75` on the negative side.",
-      "This is the saved negative-dehaze-style clarity response magnitude.",
+      "Positive clarity uses `amount^0.58`, so it builds faster than linear.",
+      "Negative clarity uses `-|amount|^0.75`, also faster than linear but gentler than positive clarity.",
       "Source: `src/pipeline/clarity.rs` -> `clarity_signed_response`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
@@ -263,27 +529,33 @@ const curves = [
   },
   {
     group: "Dehaze",
-    title: "Positive Dehaze Slider Response",
-    description: "Positive dehaze values are made more aggressive than linear before they hit the local boost logic.",
-    xLabel: "Raw positive dehaze slider value.",
-    yLabel: "Effective positive dehaze response value.",
+    title: "Dehaze Slider Response",
+    description: "Positive and negative dehaze both use non-linear response curves, with the positive side slightly more aggressive.",
+    xLabel: "Absolute dehaze slider value.",
+    yLabel: "Effective dehaze response magnitude.",
     domain: [0, 1],
     range: [0, 1],
     lines: [
       {
-        label: "Current response",
+        label: "Positive dehaze",
         color: "#245c73",
         fn: x => Math.pow(x, 0.74)
       },
       {
-        label: "Linear reference",
+        label: "Negative dehaze",
         color: "#c96d32",
+        fn: x => Math.pow(x, 0.75)
+      },
+      {
+        label: "Linear reference",
+        color: "#7c9b3d",
         fn: x => x
       }
     ],
     notes: [
-      "Used in `dehaze.rs` as `amount^0.74` for positive values.",
-      "Positive dehaze still builds faster than linear, but more gently than before.",
+      "Positive dehaze uses `amount^0.74`.",
+      "Negative dehaze uses `-|amount|^0.75`.",
+      "Both build faster than linear; positive is very slightly more aggressive.",
       "Source: `src/pipeline/dehaze.rs` -> `signed_response`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
@@ -343,33 +615,6 @@ const curves = [
       "These are the two positive-only softening terms used inside the top/bottom `35%` bands.",
       "The viewer combines both the softening and the extra pull-damping terms for easier reading.",
       "Source: `src/pipeline/dehaze.rs` -> `positive_dehaze_contrast_factor`.",
-      "Auto-updates with project changes: No. This viewer is a manual snapshot."
-    ]
-  },
-  {
-    group: "Dehaze",
-    title: "Negative Dehaze Slider Response",
-    description: "Negative dehaze is also non-linear, but slightly gentler than the positive side.",
-    xLabel: "Absolute value of the negative dehaze slider.",
-    yLabel: "Effective negative dehaze response magnitude.",
-    domain: [0, 1],
-    range: [0, 1],
-    lines: [
-      {
-        label: "Magnitude response",
-        color: "#245c73",
-        fn: x => Math.pow(x, 0.75)
-      },
-      {
-        label: "Linear reference",
-        color: "#c96d32",
-        fn: x => x
-      }
-    ],
-    notes: [
-      "Used in `dehaze.rs` as `-|amount|^0.75` on the negative side.",
-      "This still builds faster than linear, but less aggressively than positive dehaze.",
-      "Source: `src/pipeline/dehaze.rs` -> `signed_response`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
   },
@@ -534,6 +779,7 @@ for (const curve of curves) {
   const xAxis = fragment.querySelector(".x-axis");
   const yAxis = fragment.querySelector(".y-axis");
   const notes = fragment.querySelector(".notes");
+  const state = {};
 
   group.textContent = curve.group;
   title.textContent = curve.title;
@@ -542,11 +788,51 @@ for (const curve of curves) {
   yAxis.innerHTML = `<strong>Y axis:</strong> ${curve.yLabel}`;
   notes.innerHTML = curve.notes.map(note => `<p>${note}</p>`).join("");
 
-  drawGraph(canvas, curve);
+  if (curve.controls) {
+    const controls = buildCurveControls(curve, state, () => drawGraph(canvas, curve, state));
+    canvas.before(controls);
+  }
+
+  drawGraph(canvas, curve, state);
   cards.appendChild(card);
 }
 
-function drawGraph(canvas, curve) {
+function buildCurveControls(curve, state, onChange) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "curve-controls";
+
+  for (const control of curve.controls) {
+    state[control.key] = control.value;
+
+    const row = document.createElement("label");
+    row.className = "curve-control";
+
+    const name = document.createElement("span");
+    name.textContent = control.label;
+
+    const value = document.createElement("strong");
+    value.textContent = control.format(control.value);
+
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = control.min;
+    input.max = control.max;
+    input.value = control.value;
+
+    input.addEventListener("input", () => {
+      state[control.key] = Number(input.value);
+      value.textContent = control.format(state[control.key]);
+      onChange();
+    });
+
+    row.append(name, input, value);
+    wrapper.appendChild(row);
+  }
+
+  return wrapper;
+}
+
+function drawGraph(canvas, curve, state = {}) {
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
@@ -561,7 +847,7 @@ function drawGraph(canvas, curve) {
   drawGrid(ctx, width, height, padding, curve);
 
   for (const line of curve.lines) {
-    drawLine(ctx, padding, plotWidth, plotHeight, curve, line);
+    drawLine(ctx, padding, plotWidth, plotHeight, curve, line, state);
   }
 
   drawAxes(ctx, width, height, padding);
@@ -620,7 +906,7 @@ function drawLabels(ctx, width, height, padding, curve) {
   }
 }
 
-function drawLine(ctx, padding, plotWidth, plotHeight, curve, line) {
+function drawLine(ctx, padding, plotWidth, plotHeight, curve, line, state) {
   const samples = 240;
   ctx.strokeStyle = line.color;
   ctx.lineWidth = 2.4;
@@ -629,7 +915,7 @@ function drawLine(ctx, padding, plotWidth, plotHeight, curve, line) {
   for (let i = 0; i <= samples; i += 1) {
     const t = i / samples;
     const xValue = lerp(curve.domain[0], curve.domain[1], t);
-    const yValue = line.fn(xValue);
+    const yValue = line.fn(xValue, state);
     const x = padding.left + t * plotWidth;
     const y = padding.top + (1 - normalize(yValue, curve.range[0], curve.range[1])) * plotHeight;
 
@@ -675,9 +961,125 @@ function middleRangeWeight(x, activeStart, fullStart, fullEnd, activeEnd) {
   );
 }
 
+function colorGradingHighlightsWeight(x, referenceCoefficient = 1) {
+  x = clamp01(x);
+  const falloffStart = scaledReferencePoint(0.63, referenceCoefficient);
+  const fullStart = scaledReferencePoint(0.68, referenceCoefficient);
+  const peak = scaledReferencePoint(1, referenceCoefficient);
+  if (x < falloffStart) return 0;
+  if (x < fullStart) return 0.9 * sCurve(normalizeClamped(x, falloffStart, fullStart));
+  return 0.9 + 0.1 * normalizeClamped(x, fullStart, peak);
+}
+
+function colorGradingMidtonesWeight(x, referenceCoefficient = 1) {
+  x = clamp01(x);
+  const falloffStart = scaledReferencePoint(0.29, referenceCoefficient);
+  const fullStart = scaledReferencePoint(0.34, referenceCoefficient);
+  const peak = scaledReferencePoint(0.50, referenceCoefficient);
+  const fullEnd = scaledReferencePoint(0.66, referenceCoefficient);
+  const falloffEnd = scaledReferencePoint(0.71, referenceCoefficient);
+  if (x < falloffStart) return 0;
+  if (x < fullStart) return 0.9 * sCurve(normalizeClamped(x, falloffStart, fullStart));
+  if (x <= peak) return 0.9 + 0.1 * normalizeClamped(x, fullStart, peak);
+  if (x <= fullEnd) return 0.9 + 0.1 * (1 - normalizeClamped(x, peak, fullEnd));
+  if (x <= falloffEnd) return 0.9 * sCurve(1 - normalizeClamped(x, fullEnd, falloffEnd));
+  return 0;
+}
+
+function colorGradingShadowsWeight(x, referenceCoefficient = 1) {
+  x = clamp01(x);
+  const peak = scaledReferencePoint(0, referenceCoefficient);
+  const fullEnd = scaledReferencePoint(0.32, referenceCoefficient);
+  const falloffEnd = scaledReferencePoint(0.37, referenceCoefficient);
+  if (x <= fullEnd) return 0.9 + 0.1 * (1 - normalizeClamped(x, peak, fullEnd));
+  if (x <= falloffEnd) return 0.9 * sCurve(1 - normalizeClamped(x, fullEnd, falloffEnd));
+  return 0;
+}
+
+function colorGradingGlobalWeight(x) {
+  const distanceFromMidpoint = Math.abs(clamp01(x) - 0.5) / 0.5;
+  return 1 - (1 - 0.86) * sCurve(distanceFromMidpoint);
+}
+
+function hueCoefficient(hueDegrees) {
+  const hue = wrapHue(hueDegrees);
+  const chroma = 1;
+  const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+
+  if (hue < 60) return { r: chroma, g: x, b: 0 };
+  if (hue < 120) return { r: x, g: chroma, b: 0 };
+  if (hue < 180) return { r: 0, g: chroma, b: x };
+  if (hue < 240) return { r: 0, g: x, b: chroma };
+  if (hue < 300) return { r: x, g: 0, b: chroma };
+  return { r: chroma, g: 0, b: x };
+}
+
+const colorMixerZoneCenters = [0, 30, 60, 120, 180, 240, 270, 300, 330];
+
+function colorMixerZoneWeight(hue, zoneIndex) {
+  const previous = colorMixerZoneCenters[previousColorMixerZoneIndex(zoneIndex)];
+  const center = colorMixerZoneCenters[zoneIndex];
+  const next = colorMixerZoneCenters[nextColorMixerZoneIndex(zoneIndex)];
+  const signedDistance = signedHueDistance(center, wrapHue(hue));
+
+  if (signedDistance < 0) {
+    const previousDistance = clockwiseHueDistance(previous, center);
+    return sCurve(1 - Math.min(1, Math.abs(signedDistance) / previousDistance));
+  }
+
+  const nextDistance = clockwiseHueDistance(center, next);
+  return sCurve(1 - Math.min(1, signedDistance / nextDistance));
+}
+
+function colorMixerHueShift(zoneIndex, sliderValue) {
+  const slider = Math.max(-100, Math.min(100, sliderValue)) / 100;
+  const center = colorMixerZoneCenters[zoneIndex];
+
+  if (slider > 0) {
+    return clockwiseHueDistance(center, colorMixerZoneCenters[nextColorMixerZoneIndex(zoneIndex)]) * slider;
+  }
+  if (slider < 0) {
+    return -clockwiseHueDistance(colorMixerZoneCenters[previousColorMixerZoneIndex(zoneIndex)], center) * Math.abs(slider);
+  }
+  return 0;
+}
+
+function previousColorMixerZoneIndex(zoneIndex) {
+  return zoneIndex === 0 ? colorMixerZoneCenters.length - 1 : zoneIndex - 1;
+}
+
+function nextColorMixerZoneIndex(zoneIndex) {
+  return (zoneIndex + 1) % colorMixerZoneCenters.length;
+}
+
+function clockwiseHueDistance(from, to) {
+  return (to - from + 360) % 360 || 360;
+}
+
+function signedHueDistance(center, hue) {
+  const distance = (hue - center + 360) % 360;
+  return distance > 180 ? distance - 360 : distance;
+}
+
+function wrapHue(hue) {
+  return ((hue % 360) + 360) % 360;
+}
+
+function colorReferenceCoefficient(referenceShift) {
+  return Math.pow(2, Math.max(-100, Math.min(100, referenceShift)) / 100);
+}
+
+function scaledReferencePoint(point, referenceCoefficient) {
+  return point * Math.max(0.5, Math.min(2, referenceCoefficient));
+}
+
 function sCurve(t) {
   t = Math.max(0, Math.min(1, t));
   return t * t * (3 - 2 * t);
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
 }
 
 function normalizeClamped(value, min, max) {

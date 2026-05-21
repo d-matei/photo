@@ -54,6 +54,8 @@ impl BasicToneAdjustments {
 
 #[derive(Debug, Clone, Default)]
 pub struct ColorAdjustments {
+    pub temperature: f32,
+    pub tint: f32,
     pub saturation: f32,
     pub vibrance: f32,
 }
@@ -62,6 +64,12 @@ impl ColorAdjustments {
     pub fn active_count(&self) -> usize {
         let mut count = 0;
 
+        if self.temperature != 0.0 {
+            count += 1;
+        }
+        if self.tint != 0.0 {
+            count += 1;
+        }
         if self.saturation != 0.0 {
             count += 1;
         }

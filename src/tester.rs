@@ -3,6 +3,15 @@ use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb, RgbImage};
 use raw_photo_editor::pipeline::clarity::{apply_clarity_rgb, ClarityConfig};
 use raw_photo_editor::pipeline::color::RgbPixel;
+use raw_photo_editor::pipeline::color_balance::{
+    adjust_color_balance_pixel, ColorBalanceAdjustments,
+};
+use raw_photo_editor::pipeline::color_grading::{
+    adjust_color_grading_pixel, ColorGradingAdjustments,
+};
+use raw_photo_editor::pipeline::color_mixer::{
+    adjust_color_mixer_pixel, ColorMixerAdjustments, COLOR_MIXER_ZONES, COLOR_MIXER_ZONE_COUNT,
+};
 use raw_photo_editor::pipeline::contrast::{adjust_contrast_value, ContrastConfig};
 use raw_photo_editor::pipeline::dehaze::{apply_dehaze_rgb, DehazeConfig};
 use raw_photo_editor::pipeline::exposure::adjust_exposure_value;
@@ -40,6 +49,20 @@ struct UiParams {
     highlights: f32,
     shadows: f32,
     blacks: f32,
+    temperature: f32,
+    tint: f32,
+    global_grading_hue: f32,
+    global_grading_intensity: f32,
+    shadows_grading_hue: f32,
+    shadows_grading_intensity: f32,
+    midtones_grading_hue: f32,
+    midtones_grading_intensity: f32,
+    highlights_grading_hue: f32,
+    highlights_grading_intensity: f32,
+    color_grading_reference: f32,
+    mixer_hue: [f32; COLOR_MIXER_ZONE_COUNT],
+    mixer_saturation: [f32; COLOR_MIXER_ZONE_COUNT],
+    mixer_luminance: [f32; COLOR_MIXER_ZONE_COUNT],
     saturation: f32,
     contrast: f32,
     dehaze: f32,
@@ -63,6 +86,20 @@ impl Default for UiParams {
             highlights: 0.0,
             shadows: 0.0,
             blacks: 0.0,
+            temperature: 0.0,
+            tint: 0.0,
+            global_grading_hue: 35.0,
+            global_grading_intensity: 0.0,
+            shadows_grading_hue: 220.0,
+            shadows_grading_intensity: 0.0,
+            midtones_grading_hue: 35.0,
+            midtones_grading_intensity: 0.0,
+            highlights_grading_hue: 45.0,
+            highlights_grading_intensity: 0.0,
+            color_grading_reference: 0.0,
+            mixer_hue: [0.0; COLOR_MIXER_ZONE_COUNT],
+            mixer_saturation: [0.0; COLOR_MIXER_ZONE_COUNT],
+            mixer_luminance: [0.0; COLOR_MIXER_ZONE_COUNT],
             saturation: 0.0,
             contrast: 0.0,
             dehaze: 0.0,
@@ -331,6 +368,128 @@ impl TesterApp {
             "Blacks",
             defaults.blacks,
         );
+
+        ui.add_space(10.0);
+        ui.collapsing("White Balance", |ui| {
+            ui.label("Simple global color balance: temperature adds warm/cool color, tint adds magenta/green color.");
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.temperature,
+                -100.0..=100.0,
+                "Temperature",
+                defaults.temperature,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.tint,
+                -100.0..=100.0,
+                "Tint",
+                defaults.tint,
+            );
+        });
+
+        ui.add_space(10.0);
+        ui.collapsing("Color Grading", |ui| {
+            ui.label("Hue selects the color. Intensity decides how much that color is added to the selected luminance zone.");
+            params_changed |= add_hue_slider_f32(
+                ui,
+                &mut self.params.global_grading_hue,
+                0.0..=360.0,
+                "Global Hue",
+                defaults.global_grading_hue,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.global_grading_intensity,
+                0.0..=100.0,
+                "Global Intensity",
+                defaults.global_grading_intensity,
+            );
+            params_changed |= add_hue_slider_f32(
+                ui,
+                &mut self.params.shadows_grading_hue,
+                0.0..=360.0,
+                "Shadows Hue",
+                defaults.shadows_grading_hue,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.shadows_grading_intensity,
+                0.0..=100.0,
+                "Shadows Intensity",
+                defaults.shadows_grading_intensity,
+            );
+            params_changed |= add_hue_slider_f32(
+                ui,
+                &mut self.params.midtones_grading_hue,
+                0.0..=360.0,
+                "Midtones Hue",
+                defaults.midtones_grading_hue,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.midtones_grading_intensity,
+                0.0..=100.0,
+                "Midtones Intensity",
+                defaults.midtones_grading_intensity,
+            );
+            params_changed |= add_hue_slider_f32(
+                ui,
+                &mut self.params.highlights_grading_hue,
+                0.0..=360.0,
+                "Highlights Hue",
+                defaults.highlights_grading_hue,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.highlights_grading_intensity,
+                0.0..=100.0,
+                "Highlights Intensity",
+                defaults.highlights_grading_intensity,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.color_grading_reference,
+                -100.0..=100.0,
+                "Color Reference",
+                defaults.color_grading_reference,
+            );
+        });
+
+        ui.add_space(10.0);
+        ui.collapsing("Color Mixer", |ui| {
+            ui.label(
+                "HSL-style mixer: each color zone has Hue, Saturation, and Luminance controls.",
+            );
+            for index in 0..COLOR_MIXER_ZONE_COUNT {
+                let zone = COLOR_MIXER_ZONES[index];
+                ui.add_space(6.0);
+                ui.label(zone.name);
+                params_changed |= add_precise_slider_f32(
+                    ui,
+                    &mut self.params.mixer_hue[index],
+                    -100.0..=100.0,
+                    "Hue",
+                    defaults.mixer_hue[index],
+                );
+                params_changed |= add_precise_slider_f32(
+                    ui,
+                    &mut self.params.mixer_saturation[index],
+                    -100.0..=100.0,
+                    "Saturation",
+                    defaults.mixer_saturation[index],
+                );
+                params_changed |= add_precise_slider_f32(
+                    ui,
+                    &mut self.params.mixer_luminance[index],
+                    -100.0..=100.0,
+                    "Luminance",
+                    defaults.mixer_luminance[index],
+                );
+            }
+        });
+
+        ui.add_space(10.0);
         params_changed |= add_precise_slider_f32(
             ui,
             &mut self.params.saturation,
@@ -489,6 +648,27 @@ fn add_precise_slider_f32(
     text: &str,
     reset_value: f32,
 ) -> bool {
+    add_precise_slider_f32_with_track(ui, value, range, text, reset_value, SliderTrack::Default)
+}
+
+fn add_hue_slider_f32(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    text: &str,
+    reset_value: f32,
+) -> bool {
+    add_precise_slider_f32_with_track(ui, value, range, text, reset_value, SliderTrack::Hue)
+}
+
+fn add_precise_slider_f32_with_track(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    text: &str,
+    reset_value: f32,
+    track: SliderTrack,
+) -> bool {
     let min = *range.start();
     let max = *range.end();
     let mut changed = false;
@@ -514,7 +694,10 @@ fn add_precise_slider_f32(
             ((*value - min) / (max - min)).clamp(0.0, 1.0)
         };
 
-        paint_slider(ui, track_rect, *visuals, normalized);
+        match track {
+            SliderTrack::Default => paint_slider(ui, track_rect, *visuals, normalized),
+            SliderTrack::Hue => paint_hue_slider(ui, track_rect, *visuals, normalized),
+        }
 
         if response.double_clicked() {
             let next_value = reset_value.clamp(min, max);
@@ -541,6 +724,12 @@ fn add_precise_slider_f32(
     });
 
     changed
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SliderTrack {
+    Default,
+    Hue,
 }
 
 fn add_precise_slider_usize(
@@ -649,6 +838,67 @@ fn paint_slider(
     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
 }
 
+fn paint_hue_slider(
+    ui: &mut egui::Ui,
+    track_rect: egui::Rect,
+    visuals: egui::style::WidgetVisuals,
+    normalized: f32,
+) {
+    let segments = 72;
+    for index in 0..segments {
+        let start_t = index as f32 / segments as f32;
+        let end_t = (index + 1) as f32 / segments as f32;
+        let segment_rect = egui::Rect::from_min_max(
+            egui::pos2(egui::lerp(track_rect.x_range(), start_t), track_rect.top()),
+            egui::pos2(egui::lerp(track_rect.x_range(), end_t), track_rect.bottom()),
+        );
+        ui.painter()
+            .rect_filled(segment_rect, 0.0, hue_to_color32(start_t * 360.0));
+    }
+
+    ui.painter().rect_stroke(
+        track_rect,
+        6.0,
+        visuals.bg_stroke,
+        egui::StrokeKind::Outside,
+    );
+
+    let handle_center = egui::pos2(
+        egui::lerp(track_rect.x_range(), normalized),
+        track_rect.center().y,
+    );
+    ui.painter()
+        .circle_filled(handle_center, 8.0, egui::Color32::WHITE);
+    ui.painter().circle_stroke(
+        handle_center,
+        8.0,
+        egui::Stroke::new(2.0, egui::Color32::BLACK),
+    );
+
+    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+}
+
+fn hue_to_color32(hue_degrees: f32) -> egui::Color32 {
+    let hue = hue_degrees.rem_euclid(360.0);
+    let chroma = 1.0;
+    let x = chroma * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+
+    let (r, g, b) = match hue {
+        h if h < 60.0 => (chroma, x, 0.0),
+        h if h < 120.0 => (x, chroma, 0.0),
+        h if h < 180.0 => (0.0, chroma, x),
+        h if h < 240.0 => (0.0, x, chroma),
+        h if h < 300.0 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+
+    egui::Color32::from_rgb(
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8,
+    )
+}
+
 impl eframe::App for TesterApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.loaded_image.is_some() {
@@ -719,6 +969,44 @@ fn process_pipeline(
     if tonal_adjustments != TonalRangeAdjustments::default() {
         pixels.iter_mut().for_each(|pixel| {
             *pixel = adjust_tonal_ranges_pixel(*pixel, tonal_adjustments);
+        });
+    }
+
+    let color_balance_adjustments = ColorBalanceAdjustments {
+        temperature: params.temperature,
+        tint: params.tint,
+    };
+    if color_balance_adjustments.is_active() {
+        pixels.iter_mut().for_each(|pixel| {
+            *pixel = adjust_color_balance_pixel(*pixel, color_balance_adjustments);
+        });
+    }
+
+    let color_grading_adjustments = ColorGradingAdjustments {
+        global_hue: params.global_grading_hue,
+        global_intensity: params.global_grading_intensity,
+        reference_shift: params.color_grading_reference,
+        shadows_hue: params.shadows_grading_hue,
+        shadows_intensity: params.shadows_grading_intensity,
+        midtones_hue: params.midtones_grading_hue,
+        midtones_intensity: params.midtones_grading_intensity,
+        highlights_hue: params.highlights_grading_hue,
+        highlights_intensity: params.highlights_grading_intensity,
+    };
+    if color_grading_adjustments.is_active() {
+        pixels.iter_mut().for_each(|pixel| {
+            *pixel = adjust_color_grading_pixel(*pixel, color_grading_adjustments);
+        });
+    }
+
+    let color_mixer_adjustments = ColorMixerAdjustments {
+        hue: params.mixer_hue,
+        saturation: params.mixer_saturation,
+        luminance: params.mixer_luminance,
+    };
+    if color_mixer_adjustments.is_active() {
+        pixels.iter_mut().for_each(|pixel| {
+            *pixel = adjust_color_mixer_pixel(*pixel, color_mixer_adjustments);
         });
     }
 
