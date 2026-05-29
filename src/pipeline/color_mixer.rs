@@ -7,6 +7,8 @@ Color Mixer / HSL Adjustment Idea
 - Each zone has a soft overlapping influence mask on the hue circle.
 - A pixel can be influenced by neighboring color zones, similar to how color grading
   zones overlap on the luminance scale.
+- Each influence mask extends slightly past its neighboring zone centers, so transitions
+  between colors stay softer than a hard center-to-center split.
 - Each zone has three controls:
   * Hue: shifts selected colors toward their neighboring hue centers.
     - `-100` moves a pure zone-center hue to the previous zone center.
@@ -23,6 +25,7 @@ use crate::pipeline::exposure::adjust_exposure_value;
 use crate::pipeline::saturation::adjust_saturation_pixel;
 
 pub const COLOR_MIXER_ZONE_COUNT: usize = 9;
+const HUE_ZONE_EXTRA_OVERLAP: f32 = 0.20;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ColorMixerAdjustments {
@@ -158,8 +161,8 @@ pub fn zone_weight(hue: f32, zone_index: usize) -> f32 {
     let next = zone_center(next_zone_index(zone_index));
     let hue = wrap_hue(hue);
 
-    let prev_distance = clockwise_distance(previous, center).max(1.0);
-    let next_distance = clockwise_distance(center, next).max(1.0);
+    let prev_distance = expanded_zone_distance(clockwise_distance(previous, center));
+    let next_distance = expanded_zone_distance(clockwise_distance(center, next));
     let signed_distance = signed_hue_distance(center, hue);
 
     if signed_distance < 0.0 {
@@ -202,6 +205,10 @@ fn zone_center(zone_index: usize) -> f32 {
 
 fn clockwise_distance(from: f32, to: f32) -> f32 {
     (to - from).rem_euclid(360.0)
+}
+
+fn expanded_zone_distance(distance: f32) -> f32 {
+    (distance * (1.0 + HUE_ZONE_EXTRA_OVERLAP)).max(1.0)
 }
 
 fn signed_hue_distance(center: f32, hue: f32) -> f32 {
@@ -316,19 +323,15 @@ mod tests {
     }
 
     #[test]
-    fn zone_weight_peaks_at_zone_center_and_falls_to_neighbors() {
+    fn zone_weight_peaks_at_zone_center_and_extends_past_neighbors() {
         let yellow_index = 2;
         assert_eq!(
             zone_weight(COLOR_MIXER_ZONES[yellow_index].center_hue, yellow_index),
             1.0
         );
-        assert_eq!(
-            zone_weight(COLOR_MIXER_ZONES[1].center_hue, yellow_index),
-            0.0
-        );
-        assert_eq!(
-            zone_weight(COLOR_MIXER_ZONES[3].center_hue, yellow_index),
-            0.0
-        );
+        assert!(zone_weight(COLOR_MIXER_ZONES[1].center_hue, yellow_index) > 0.0);
+        assert!(zone_weight(COLOR_MIXER_ZONES[3].center_hue, yellow_index) > 0.0);
+        assert_eq!(zone_weight(0.0, yellow_index), 0.0);
+        assert_eq!(zone_weight(135.0, yellow_index), 0.0);
     }
 }

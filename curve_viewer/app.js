@@ -7,6 +7,17 @@ const curves = [
     yLabel: "How much each tonal slider affects that luminance.",
     domain: [0, 1],
     range: [0, 1],
+    markers: [
+      { label: "Red", x: 0, color: "#c73a32" },
+      { label: "Orange", x: 30, color: "#d47a2c" },
+      { label: "Yellow", x: 60, color: "#c9ad2f" },
+      { label: "Green", x: 120, color: "#5f9b42" },
+      { label: "Aqua", x: 180, color: "#2aa49a" },
+      { label: "Blue", x: 240, color: "#376ab5" },
+      { label: "Purple", x: 270, color: "#7352aa" },
+      { label: "Magenta", x: 300, color: "#b348a3" },
+      { label: "Pink", x: 330, color: "#cf5d78" }
+    ],
     lines: [
       {
         label: "Blacks",
@@ -173,6 +184,69 @@ const curves = [
     ]
   },
   {
+    group: "Color Mixer",
+    title: "Color Mixer Hue Zone Masks",
+    description: "The HSL mixer uses 9 overlapping hue zones. Each zone peaks at its named hue and falls with an S curve slightly past neighboring hue centers.",
+    xLabel: "Hue angle in degrees around the color wheel.",
+    yLabel: "How much each color mixer zone affects that hue.",
+    domain: [0, 360],
+    range: [0, 1],
+    lines: [
+      {
+        label: "Red",
+        color: "#c73a32",
+        fn: x => colorMixerZoneWeight(x, 0)
+      },
+      {
+        label: "Orange",
+        color: "#d47a2c",
+        fn: x => colorMixerZoneWeight(x, 1)
+      },
+      {
+        label: "Yellow",
+        color: "#c9ad2f",
+        fn: x => colorMixerZoneWeight(x, 2)
+      },
+      {
+        label: "Green",
+        color: "#5f9b42",
+        fn: x => colorMixerZoneWeight(x, 3)
+      },
+      {
+        label: "Aqua",
+        color: "#2aa49a",
+        fn: x => colorMixerZoneWeight(x, 4)
+      },
+      {
+        label: "Blue",
+        color: "#376ab5",
+        fn: x => colorMixerZoneWeight(x, 5)
+      },
+      {
+        label: "Purple",
+        color: "#7352aa",
+        fn: x => colorMixerZoneWeight(x, 6)
+      },
+      {
+        label: "Magenta",
+        color: "#b348a3",
+        fn: x => colorMixerZoneWeight(x, 7)
+      },
+      {
+        label: "Pink",
+        color: "#cf5d78",
+        fn: x => colorMixerZoneWeight(x, 8)
+      }
+    ],
+    notes: [
+      "Zone centers: Red `0deg`, Orange `30deg`, Yellow `60deg`, Green `120deg`, Aqua `180deg`, Blue `240deg`, Purple `270deg`, Magenta `300deg`, Pink `330deg`.",
+      "Each zone extends `20%` past the neighboring center on both sides, so adjacent colors blend more softly.",
+      "The hue slider moves each center toward its neighboring centers: for example Yellow at `-100` moves to Orange, and Yellow at `100` moves to Green.",
+      "Source: `src/pipeline/color_mixer.rs` -> `zone_weight` and `hue_shift_for_zone`.",
+      "Auto-updates with project changes: No. This viewer is a manual snapshot."
+    ]
+  },
+  {
     group: "Color Grading",
     title: "Color Grading Zone Masks",
     description: "The color grading masks use 5% S-curve falloffs, while the global mask keeps nearly full influence across the whole image.",
@@ -245,68 +319,6 @@ const curves = [
       "Formula: `coefficient = 2^(slider / 100)`.",
       "`-100 = 0.5x`, `0 = 1.0x`, `100 = 2.0x`.",
       "Source: `src/pipeline/color_grading.rs` -> `reference_shift_to_coefficient`.",
-      "Auto-updates with project changes: No. This viewer is a manual snapshot."
-    ]
-  },
-  {
-    group: "Color Mixer",
-    title: "Color Mixer Hue Zone Masks",
-    description: "The HSL mixer uses 9 overlapping hue zones. Each zone peaks at its named hue and falls with an S curve toward neighboring hue centers.",
-    xLabel: "Hue angle in degrees around the color wheel.",
-    yLabel: "How much each color mixer zone affects that hue.",
-    domain: [0, 360],
-    range: [0, 1],
-    lines: [
-      {
-        label: "Red",
-        color: "#c73a32",
-        fn: x => colorMixerZoneWeight(x, 0)
-      },
-      {
-        label: "Orange",
-        color: "#d47a2c",
-        fn: x => colorMixerZoneWeight(x, 1)
-      },
-      {
-        label: "Yellow",
-        color: "#c9ad2f",
-        fn: x => colorMixerZoneWeight(x, 2)
-      },
-      {
-        label: "Green",
-        color: "#5f9b42",
-        fn: x => colorMixerZoneWeight(x, 3)
-      },
-      {
-        label: "Aqua",
-        color: "#2aa49a",
-        fn: x => colorMixerZoneWeight(x, 4)
-      },
-      {
-        label: "Blue",
-        color: "#376ab5",
-        fn: x => colorMixerZoneWeight(x, 5)
-      },
-      {
-        label: "Purple",
-        color: "#7352aa",
-        fn: x => colorMixerZoneWeight(x, 6)
-      },
-      {
-        label: "Magenta",
-        color: "#b348a3",
-        fn: x => colorMixerZoneWeight(x, 7)
-      },
-      {
-        label: "Pink",
-        color: "#cf5d78",
-        fn: x => colorMixerZoneWeight(x, 8)
-      }
-    ],
-    notes: [
-      "Zone centers: Red `0deg`, Orange `30deg`, Yellow `60deg`, Green `120deg`, Aqua `180deg`, Blue `240deg`, Purple `270deg`, Magenta `300deg`, Pink `330deg`.",
-      "The hue slider moves each center toward its neighboring centers: for example Yellow at `-100` moves to Orange, and Yellow at `100` moves to Green.",
-      "Source: `src/pipeline/color_mixer.rs` -> `zone_weight` and `hue_shift_for_zone`.",
       "Auto-updates with project changes: No. This viewer is a manual snapshot."
     ]
   },
@@ -850,6 +862,10 @@ function drawGraph(canvas, curve, state = {}) {
     drawLine(ctx, padding, plotWidth, plotHeight, curve, line, state);
   }
 
+  if (curve.markers) {
+    drawMarkers(ctx, padding, plotWidth, plotHeight, curve);
+  }
+
   drawAxes(ctx, width, height, padding);
   drawLabels(ctx, width, height, padding, curve);
 }
@@ -927,6 +943,38 @@ function drawLine(ctx, padding, plotWidth, plotHeight, curve, line, state) {
   }
 
   ctx.stroke();
+}
+
+function drawMarkers(ctx, padding, plotWidth, plotHeight, curve) {
+  ctx.save();
+  ctx.lineWidth = 2;
+
+  for (const marker of curve.markers) {
+    const t = normalize(marker.x, curve.domain[0], curve.domain[1]);
+    const x = padding.left + t * plotWidth;
+    const bandWidth = 18;
+
+    ctx.fillStyle = `${marker.color}22`;
+    ctx.fillRect(x - bandWidth / 2, padding.top, bandWidth, plotHeight);
+
+    ctx.strokeStyle = marker.color;
+    ctx.beginPath();
+    ctx.moveTo(x, padding.top);
+    ctx.lineTo(x, padding.top + plotHeight);
+    ctx.stroke();
+
+    ctx.fillStyle = marker.color;
+    ctx.beginPath();
+    ctx.arc(x, padding.top + 6, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#6a5f57";
+    ctx.font = "11px Segoe UI";
+    ctx.fillText(marker.label, x - ctx.measureText(marker.label).width / 2, padding.top - 6);
+    ctx.fillText(marker.label, x - ctx.measureText(marker.label).width / 2, padding.top + plotHeight + 16);
+  }
+
+  ctx.restore();
 }
 
 function normalize(value, min, max) {
@@ -1015,6 +1063,7 @@ function hueCoefficient(hueDegrees) {
 }
 
 const colorMixerZoneCenters = [0, 30, 60, 120, 180, 240, 270, 300, 330];
+const colorMixerExtraOverlap = 0.20;
 
 function colorMixerZoneWeight(hue, zoneIndex) {
   const previous = colorMixerZoneCenters[previousColorMixerZoneIndex(zoneIndex)];
@@ -1023,12 +1072,16 @@ function colorMixerZoneWeight(hue, zoneIndex) {
   const signedDistance = signedHueDistance(center, wrapHue(hue));
 
   if (signedDistance < 0) {
-    const previousDistance = clockwiseHueDistance(previous, center);
+    const previousDistance = expandedColorMixerDistance(clockwiseHueDistance(previous, center));
     return sCurve(1 - Math.min(1, Math.abs(signedDistance) / previousDistance));
   }
 
-  const nextDistance = clockwiseHueDistance(center, next);
+  const nextDistance = expandedColorMixerDistance(clockwiseHueDistance(center, next));
   return sCurve(1 - Math.min(1, signedDistance / nextDistance));
+}
+
+function expandedColorMixerDistance(distance) {
+  return Math.max(1, distance * (1 + colorMixerExtraOverlap));
 }
 
 function colorMixerHueShift(zoneIndex, sliderValue) {
