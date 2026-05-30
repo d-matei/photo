@@ -102,6 +102,7 @@
         <div class="image-stage" id="imageStage">
           <figure class="preview-frame">
             <img id="previewImage" alt="">
+            <div id="maskOverlayLayer" class="mask-overlay-layer" aria-hidden="true"></div>
             <figcaption id="emptyState">
               <strong>No image loaded</strong>
               <span>The frontend owns this viewer and the controls. Rendering will come from the Rust backend bridge later.</span>
@@ -109,6 +110,10 @@
           </figure>
         </div>
       </section>
+
+      <aside id="maskPanel" class="mask-panel" aria-label="Selected mask adjustments" hidden>
+        <div id="maskPanelContent"></div>
+      </aside>
     </main>
 
     <script src="./src/app.js"></script>

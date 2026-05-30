@@ -62,7 +62,7 @@ input {
 
 button {
   border: 1px solid var(--panel-border);
-  border-radius: 11px;
+  border-radius: 4px;
   padding: 9px 12px;
   color: var(--text);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.045));
@@ -84,7 +84,7 @@ button:disabled {
 
 .editor-shell {
   display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr) minmax(320px, 380px);
   min-height: 100vh;
 }
 
@@ -556,7 +556,7 @@ input[type="range"]::-moz-range-progress {
   min-height: 68px;
   padding: 11px 8px;
   border: 1px solid transparent;
-  border-radius: 13px;
+  border-radius: 4px;
   color: #c7d0e6;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -637,6 +637,95 @@ input[type="range"]::-moz-range-progress {
   min-width: 0;
 }
 
+.mask-panel {
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 20px;
+  background: linear-gradient(180deg, rgba(44, 50, 60, 0.72), rgba(28, 32, 39, 0.68));
+  border-left: 1px solid var(--panel-border);
+  backdrop-filter: blur(22px) saturate(1.28);
+  -webkit-backdrop-filter: blur(22px) saturate(1.28);
+}
+
+.mask-panel[hidden] {
+  display: none !important;
+}
+
+.editor-shell:has(.mask-panel[hidden]) {
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+}
+
+.mask-panel-header {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mask-panel-title {
+  display: grid;
+  gap: 4px;
+}
+
+.mask-panel-title span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.mask-panel-title strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.mask-panel-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mask-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.mask-list-item {
+  width: 100%;
+  text-align: left;
+}
+
+.mask-list-item.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(225, 252, 251, 0.1);
+}
+
+.mask-panel-section {
+  margin-bottom: 18px;
+}
+
+.mask-panel-stack,
+.mask-grading {
+  display: grid;
+  gap: 13px;
+}
+
+.mask-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mask-toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
 .topbar {
   padding: 16px 20px;
   border-bottom: 1px solid var(--panel-border);
@@ -682,6 +771,173 @@ input[type="range"]::-moz-range-progress {
   background-position: 0 0, 0 12px, 12px -12px, -12px 0;
   background-size: 24px 24px;
   box-shadow: var(--shadow);
+}
+
+.mask-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.linear-mask-preview,
+.radial-mask-overlay,
+.radial-mask-svg,
+.brush-mask-canvas,
+.brush-cursor-preview {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.linear-mask-preview {
+  width: 180%;
+  height: 180%;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 0, 0, 0) 0%,
+    rgba(255, 0, 0, calc(0.45 * var(--mask-density))) calc(50% - var(--mask-spread)),
+    rgba(255, 0, 0, calc(0.45 * var(--mask-density))) 50%,
+    rgba(255, 0, 0, 0) calc(50% + var(--mask-spread)),
+    rgba(255, 0, 0, 0) 100%
+  );
+  cursor: move;
+}
+
+.linear-mask-preview.is-inverted {
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 0, 0, calc(0.38 * var(--mask-density))) 0%,
+    rgba(255, 0, 0, 0) calc(50% - var(--mask-spread)),
+    rgba(255, 0, 0, 0) calc(50% + var(--mask-spread)),
+    rgba(255, 0, 0, calc(0.38 * var(--mask-density))) 100%
+  );
+}
+
+.linear-center-line {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 -36px 0 rgba(255, 255, 255, 0.34), 0 36px 0 rgba(255, 255, 255, 0.34);
+}
+
+.mask-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid rgba(28, 31, 37, 0.9);
+  border-radius: 999px;
+  background: #f7fbff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.38);
+  pointer-events: auto;
+}
+
+.linear-move-handle,
+.radial-move-handle {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.linear-rotate-handle {
+  left: 50%;
+  top: calc(50% - 72px);
+  transform: translate(-50%, -50%);
+}
+
+.radial-mask-overlay {
+  inset: 0;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.radial-mask-svg {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.radial-mask-hit-area {
+  cursor: move;
+  pointer-events: all;
+}
+
+.radial-resize-handle {
+  transform: translate(-50%, -50%);
+}
+
+.radial-top-handle,
+.radial-bottom-handle {
+  cursor: ns-resize;
+}
+
+.radial-left-handle,
+.radial-right-handle {
+  cursor: ew-resize;
+}
+
+.radial-rotate-handle {
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.radial-rotate-handle::before {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 34px;
+  content: "";
+  background: rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, 8px);
+  pointer-events: none;
+}
+
+.radial-rotate-handle:active {
+  cursor: grabbing;
+}
+
+.radial-move-handle {
+  cursor: move;
+}
+
+.radial-mask-overlay .mask-handle {
+  z-index: 2;
+}
+
+.brush-mask-canvas {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.brush-cursor-preview {
+  z-index: 3;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.brush-cursor-preview::after {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--brush-inner);
+  height: var(--brush-inner);
+  content: "";
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.image-stage.is-brush-editing .mask-overlay-layer {
+  cursor: none;
 }
 
 .image-stage.has-image {
@@ -746,5 +1002,11 @@ input[type="range"]::-moz-range-progress {
     max-height: none;
     border-right: 0;
     border-bottom: 1px solid var(--panel-border);
+  }
+
+  .mask-panel {
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid var(--panel-border);
   }
 }
