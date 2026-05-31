@@ -29,7 +29,7 @@
     "targets": "all",
     "icon": [
       "icons/icon.ico",
-      "icons/icon-256.png"
+      "icons/icon-128.png"
     ]
   }
 }
