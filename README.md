@@ -15,7 +15,8 @@ Backend-first foundation for a Lightroom-like photo editor.
 
 - Core engine: Rust
 - Current tuning app: native Rust tester
-- Future user interface: separate frontend app, likely web-based, connected later through Tauri or another app shell
+- Current connected app: web frontend served by the Rust backend
+- Future app shell: Tauri or another desktop shell once the algorithms and interface settle
 
 ## Project Split
 
@@ -73,8 +74,24 @@ The repository is now organized around a simple two-person collaboration model:
 - The frontend should send parameter values and receive preview/export results from the backend layer.
 - The native Rust tester stays available as the fast internal tuning tool while the real frontend is being built.
 
-## Immediate Next Step
+## Running The App
 
-1. Keep tuning algorithms in the Rust tester.
-2. Build the frontend inside `frontend/`.
-3. Use `docs/integration-contract.md` as the shared boundary so both people can work in parallel.
+Run the connected frontend/backend app:
+
+```powershell
+cargo run --release -- serve
+```
+
+Then open:
+
+```text
+http://127.0.0.1:7878
+```
+
+Run the native Rust algorithm tester:
+
+```powershell
+cargo run --release
+```
+
+The connected frontend currently sends the loaded image, global adjustments, and masks to Rust. Rust renders the preview through `src/pipeline/render.rs` and returns the edited preview image.

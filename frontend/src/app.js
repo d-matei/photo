@@ -23,7 +23,7 @@ const controlGroups = {
 };
 
 const controls = [
-  { group: "light", key: "exposure", label: "Exposure", min: -5, max: 5, step: 0.05, value: 0, decimals: 2 },
+  { group: "light", key: "exposure", label: "Exposure", min: -100, max: 100, step: 1, value: 0, decimals: 0 },
   { group: "light", key: "contrast", label: "Contrast", min: -100, max: 100, step: 1, value: 0, decimals: 0 },
   { group: "light", key: "highlights", label: "Highlights", min: -100, max: 100, step: 1, value: 0, decimals: 0 },
   { group: "light", key: "shadows", label: "Shadows", min: -100, max: 100, step: 1, value: 0, decimals: 0 },
@@ -41,12 +41,13 @@ const gradingWheelZones = ["Global", "Shadows", "Midtones", "Highlights"];
 const hslColors = [
   { name: "Red", swatch: "#ff2d2d", hue: 0 },
   { name: "Orange", swatch: "#ff8a1f", hue: 30 },
-  { name: "Yellow", swatch: "#ffe11f", hue: 55 },
-  { name: "Green", swatch: "#17bf33", hue: 125 },
-  { name: "Aqua", swatch: "#20d5e5", hue: 185 },
-  { name: "Blue", swatch: "#3888ff", hue: 215 },
+  { name: "Yellow", swatch: "#ffe11f", hue: 60 },
+  { name: "Green", swatch: "#17bf33", hue: 120 },
+  { name: "Aqua", swatch: "#20d5e5", hue: 180 },
+  { name: "Blue", swatch: "#3888ff", hue: 240 },
   { name: "Purple", swatch: "#9b26ff", hue: 270 },
-  { name: "Magenta", swatch: "#ff18d4", hue: 310 }
+  { name: "Magenta", swatch: "#ff18d4", hue: 300 },
+  { name: "Pink", swatch: "#ff5ca8", hue: 330 }
 ];
 
 const state = Object.fromEntries(controls.map(control => [control.key, control.value]));
@@ -60,6 +61,11 @@ const history = {
   redo: [],
   activeSliderSnapshot: null
 };
+let originalImageDataUrl = null;
+let renderedImageDataUrl = null;
+let renderTimer = null;
+let renderRequestId = 0;
+const maskPanelOpenSections = new Map();
 
 function snapshotState() {
   return { ...state };
@@ -115,6 +121,103 @@ function updateStatus() {
   statusText.textContent = activeCount === 0
     ? "No adjustments active."
     : `${activeCount} adjustment${activeCount === 1 ? "" : "s"} active.`;
+  scheduleBackendRender();
+}
+
+function backendRenderingAvailable() {
+  return window.location.protocol === "http:" || window.location.protocol === "https:";
+}
+
+function scheduleBackendRender() {
+  if (!originalImageDataUrl || !backendRenderingAvailable()) {
+    return;
+  }
+
+  window.clearTimeout(renderTimer);
+  renderTimer = window.setTimeout(requestBackendRender, 180);
+}
+
+async function requestBackendRender() {
+  if (!originalImageDataUrl) {
+    return;
+  }
+
+  const requestId = ++renderRequestId;
+  statusText.textContent = "Rendering with Rust backend...";
+
+  try {
+    const response = await fetch("/api/render", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        image_data_url: originalImageDataUrl,
+        params: buildBackendRenderRequest()
+      })
+    });
+
+    if (!response.ok) {
+      const details = await response.json().catch(() => ({}));
+      throw new Error(details.error || `Render failed with HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (requestId !== renderRequestId) {
+      return;
+    }
+
+    renderedImageDataUrl = result.image_data_url;
+    if (!previewImage.classList.contains("showing-before")) {
+      previewImage.src = renderedImageDataUrl;
+    }
+    updateRenderedStatus();
+  } catch (error) {
+    if (requestId === renderRequestId) {
+      statusText.textContent = `Rust render failed: ${error.message}`;
+    }
+  }
+}
+
+function updateRenderedStatus() {
+  const activeCount = Object.values(state).filter(value => value !== 0).length;
+  const maskCount = masks.filter(mask => mask.visible).length;
+  const adjustmentText = activeCount === 0
+    ? "No global adjustments"
+    : `${activeCount} global adjustment${activeCount === 1 ? "" : "s"}`;
+  const maskText = maskCount === 0
+    ? "no active masks"
+    : `${maskCount} active mask${maskCount === 1 ? "" : "s"}`;
+  statusText.textContent = `${adjustmentText}, ${maskText}. Rust preview is up to date.`;
+}
+
+function showOriginalPreview() {
+  if (!originalImageDataUrl) {
+    return;
+  }
+
+  beforeAfterButton.textContent = "After";
+  previewImage.classList.add("showing-before");
+  previewImage.src = originalImageDataUrl;
+}
+
+function showRenderedPreview() {
+  beforeAfterButton.textContent = "Before";
+  previewImage.classList.remove("showing-before");
+  if (renderedImageDataUrl) {
+    previewImage.src = renderedImageDataUrl;
+  }
+}
+
+function exportRenderedPreview() {
+  if (!renderedImageDataUrl) {
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = renderedImageDataUrl;
+  link.download = "raw-photo-editor-render.png";
+  link.click();
 }
 
 function updateRangeFill(input) {
@@ -192,6 +295,9 @@ function createSliderControl(control, className = "slider-control") {
 function createMiniControl(key, label, min, max, step, value, decimals) {
   const control = { key, label, min, max, step, value, decimals };
   const wrapper = createSliderControl(control, "mini-control");
+  if (key.endsWith("_grading_hue")) {
+    wrapper.classList.add("hue-slider");
+  }
   wrapper.querySelector(".slider-label-row").className = "mini-label-row";
   return wrapper;
 }
@@ -269,6 +375,18 @@ function renderColorGradingWheel(zone) {
   handle.className = "wheel-handle";
   wheel.append(handle);
   updateWheelHandle(wheel, zone);
+
+  handle.addEventListener("dblclick", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const before = snapshotState();
+    const zoneKey = zone.toLowerCase();
+    state[`${zoneKey}_grading_hue`] = 0;
+    state[`${zoneKey}_grading_saturation`] = 0;
+    updateWheelHandle(wheel, zone);
+    recordHistory(before, snapshotState());
+    updateStatus();
+  });
 
   wheel.addEventListener("pointerdown", event => {
     event.preventDefault();
@@ -455,6 +573,197 @@ function createDefaultMaskAdjustments() {
   };
 }
 
+function defaultBackendAdjustmentValues() {
+  return {
+    exposure: 0,
+    whites: 0,
+    highlights: 0,
+    shadows: 0,
+    blacks: 0,
+    temperature: 0,
+    tint: 0,
+    global_grading_hue: 35,
+    global_grading_intensity: 0,
+    shadows_grading_hue: 220,
+    shadows_grading_intensity: 0,
+    midtones_grading_hue: 35,
+    midtones_grading_intensity: 0,
+    highlights_grading_hue: 45,
+    highlights_grading_intensity: 0,
+    color_grading_reference: 0,
+    mixer_hue: hslColors.map(() => 0),
+    mixer_saturation: hslColors.map(() => 0),
+    mixer_luminance: hslColors.map(() => 0),
+    saturation: 0,
+    contrast: 0,
+    dehaze: 0,
+    clarity: 0,
+    contrast_reference: 128,
+    contrast_gamma: 0.5,
+    dehaze_block_size: 16,
+    dehaze_negative_reference_offset: 28,
+    dehaze_positive_saturation_boost: 1,
+    clarity_block_size: 16,
+    clarity_negative_reference_offset: 28,
+    clarity_positive_saturation_compensation: 0.38,
+    clarity_negative_saturation_compensation: 0.72
+  };
+}
+
+function buildGlobalAdjustmentValues() {
+  const values = defaultBackendAdjustmentValues();
+
+  values.exposure = state.exposure;
+  values.whites = state.whites;
+  values.highlights = state.highlights;
+  values.shadows = state.shadows;
+  values.blacks = state.blacks;
+  values.temperature = state.temp;
+  values.tint = state.tint;
+  values.saturation = state.saturation / 100;
+  values.contrast = state.contrast / 100;
+  values.dehaze = state.dehaze / 100;
+  values.clarity = state.clarity / 100;
+  applyBackendColorGrading(values, {
+    global: {
+      hue: state.global_grading_hue ?? values.global_grading_hue,
+      saturation: state.global_grading_saturation ?? 0
+    },
+    shadows: {
+      hue: state.shadows_grading_hue ?? values.shadows_grading_hue,
+      saturation: state.shadows_grading_saturation ?? 0
+    },
+    midtones: {
+      hue: state.midtones_grading_hue ?? values.midtones_grading_hue,
+      saturation: state.midtones_grading_saturation ?? 0
+    },
+    highlights: {
+      hue: state.highlights_grading_hue ?? values.highlights_grading_hue,
+      saturation: state.highlights_grading_saturation ?? 0
+    }
+  });
+  applyBackendHsl(values, Object.fromEntries(
+    hslColors.map(color => {
+      const key = color.name.toLowerCase();
+      return [
+        key,
+        {
+          hue: state[`${key}_hue`] ?? 0,
+          saturation: state[`${key}_saturation`] ?? 0,
+          luminance: state[`${key}_luminance`] ?? 0
+        }
+      ];
+    })
+  ));
+
+  return values;
+}
+
+function buildMaskAdjustmentValues(maskAdjustments) {
+  const values = defaultBackendAdjustmentValues();
+
+  values.exposure = maskAdjustments.light.exposure;
+  values.contrast = maskAdjustments.light.contrast / 100;
+  values.highlights = maskAdjustments.light.highlights;
+  values.shadows = maskAdjustments.light.shadows;
+  values.whites = maskAdjustments.light.whites;
+  values.blacks = maskAdjustments.light.blacks;
+  values.dehaze = maskAdjustments.effects.dehaze / 100;
+  values.clarity = maskAdjustments.effects.clarity / 100;
+  values.temperature = maskAdjustments.color.temp;
+  values.tint = maskAdjustments.color.tint;
+  values.saturation = maskAdjustments.color.saturation / 100;
+  applyBackendColorGrading(values, maskAdjustments.colorGrading);
+  applyBackendHsl(values, maskAdjustments.hsl);
+
+  return values;
+}
+
+function applyBackendColorGrading(values, grading) {
+  values.global_grading_hue = grading.global.hue;
+  values.global_grading_intensity = grading.global.saturation;
+  values.shadows_grading_hue = grading.shadows.hue;
+  values.shadows_grading_intensity = grading.shadows.saturation;
+  values.midtones_grading_hue = grading.midtones.hue;
+  values.midtones_grading_intensity = grading.midtones.saturation;
+  values.highlights_grading_hue = grading.highlights.hue;
+  values.highlights_grading_intensity = grading.highlights.saturation;
+}
+
+function applyBackendHsl(values, hsl) {
+  values.mixer_hue = hslColors.map(color => hsl[color.name.toLowerCase()]?.hue ?? 0);
+  values.mixer_saturation = hslColors.map(color => hsl[color.name.toLowerCase()]?.saturation ?? 0);
+  values.mixer_luminance = hslColors.map(color => hsl[color.name.toLowerCase()]?.luminance ?? 0);
+}
+
+function buildBackendRenderRequest() {
+  return {
+    global: buildGlobalAdjustmentValues(),
+    masks: masks.map(mask => ({
+      id: mask.id,
+      name: mask.name,
+      enabled: mask.visible,
+      density: mask.density,
+      inverted: mask.inverted,
+      shape: buildBackendMaskShape(mask),
+      adjustments: buildMaskAdjustmentValues(mask.adjustments)
+    }))
+  };
+}
+
+function buildBackendMaskShape(mask) {
+  if (mask.type === "linear") {
+    return {
+      linear_gradient: {
+        center_x: mask.geometry.centerX,
+        center_y: mask.geometry.centerY,
+        angle_degrees: mask.geometry.angle,
+        half_width: mask.geometry.spread,
+        side: -(mask.geometry.side ?? 1)
+      }
+    };
+  }
+
+  if (mask.type === "radial") {
+    return {
+      radial_gradient: {
+        center_x: mask.geometry.centerX,
+        center_y: mask.geometry.centerY,
+        radius_x: mask.geometry.radiusX,
+        radius_y: mask.geometry.radiusY,
+        rotation_degrees: mask.geometry.rotation,
+        feather: mask.feather / 100
+      }
+    };
+  }
+
+  return {
+    brush: {
+      strokes: buildBackendBrushStrokes(mask)
+    }
+  };
+}
+
+function buildBackendBrushStrokes(mask) {
+  const rect = maskOverlayLayer.getBoundingClientRect();
+  const shortestSide = Math.max(1, Math.min(rect.width || 1, rect.height || 1));
+
+  return mask.brush.strokes.map(stroke => ({
+    center_x: stroke.x,
+    center_y: stroke.y,
+    radius: (stroke.size / 2) / shortestSide,
+    feather: stroke.feather / 100,
+    flow: stroke.flow / 100,
+    erase: stroke.eraser
+  }));
+}
+
+window.RawPhotoEditorFrontend = {
+  buildBackendRenderRequest,
+  state,
+  masks
+};
+
 function maskDisplayType(type) {
   return {
     linear: "Linear",
@@ -497,6 +806,7 @@ function createMask(type) {
   });
   masks.push(mask);
   selectMask(id);
+  scheduleBackendRender();
 }
 
 function defaultMaskGeometry(type) {
@@ -505,7 +815,8 @@ function defaultMaskGeometry(type) {
       centerX: 0.5,
       centerY: 0.5,
       angle: 0,
-      spread: 0.28
+      spread: 0.28,
+      side: 1
     };
   }
 
@@ -579,7 +890,10 @@ function normalizeMaskTool(tool) {
 function createPanelSection(title, children, open = true) {
   const details = document.createElement("details");
   details.className = "mask-panel-section";
-  details.open = open;
+  details.open = maskPanelOpenSections.get(title) ?? open;
+  details.addEventListener("toggle", () => {
+    maskPanelOpenSections.set(title, details.open);
+  });
 
   const summary = document.createElement("summary");
   summary.textContent = title;
@@ -619,6 +933,7 @@ function createMaskSlider(label, value, min, max, step, onInput, decimals = 0, c
     onInput(nextValue);
     updateRangeFill(input);
     renderMaskOverlay();
+    scheduleBackendRender();
   });
 
   input.addEventListener("dblclick", () => {
@@ -627,6 +942,7 @@ function createMaskSlider(label, value, min, max, step, onInput, decimals = 0, c
     onInput(0);
     updateRangeFill(input);
     renderMaskOverlay();
+    scheduleBackendRender();
   });
 
   labelRow.append(labelText, output);
@@ -648,6 +964,7 @@ function createMaskToggle(label, checked, onChange) {
     onChange(input.checked);
     renderMaskPanel();
     renderMaskOverlay();
+    scheduleBackendRender();
   });
 
   wrapper.append(text, input);
@@ -774,9 +1091,12 @@ function createMaskTypeSections(mask) {
         createMaskSlider("Position Y", mask.geometry.centerY, 0, 1, 0.01, value => {
           mask.geometry.centerY = value;
         }, 2),
-        createMaskSlider("Spread", mask.geometry.spread, 0.05, 0.8, 0.01, value => {
+        createMaskSlider("Spread", mask.geometry.spread, 0.05, 0.49, 0.01, value => {
           mask.geometry.spread = value;
-        }, 2)
+        }, 2),
+        createMaskToggle("Flip Side", mask.geometry.side < 0, value => {
+          mask.geometry.side = value ? -1 : 1;
+        })
       ], true)
     ];
   }
@@ -825,7 +1145,7 @@ function createModeButtons(mask) {
 function createMaskAdjustmentSections(mask) {
   return [
     createPanelSection("Light", [
-      createAdjustmentSlider(mask, "light", "exposure", "Exposure", -5, 5, 0.05, 2),
+      createAdjustmentSlider(mask, "light", "exposure", "Exposure", -100, 100, 1),
       createAdjustmentSlider(mask, "light", "contrast", "Contrast", -100, 100, 1),
       createAdjustmentSlider(mask, "light", "highlights", "Highlights", -100, 100, 1),
       createAdjustmentSlider(mask, "light", "shadows", "Shadows", -100, 100, 1),
@@ -867,6 +1187,7 @@ function createMaskColorGrading(mask) {
     button.textContent = mode === "sliders" ? "Sliders" : "Wheels";
     button.addEventListener("click", () => {
       activeMaskPanelMode = mode;
+      maskPanelOpenSections.set("Color Grading", true);
       renderMaskPanel();
     });
     modeRow.append(button);
@@ -897,7 +1218,7 @@ function createMaskGradingSliders(mask, zone) {
     heading,
     createMaskSlider("Hue", mask.adjustments.colorGrading[key].hue, 0, 360, 1, value => {
       mask.adjustments.colorGrading[key].hue = value;
-    }, 0, "mini-control"),
+    }, 0, "mini-control hue-slider"),
     createMaskSlider("Saturation", mask.adjustments.colorGrading[key].saturation, 0, 100, 1, value => {
       mask.adjustments.colorGrading[key].saturation = value;
     }, 0, "mini-control")
@@ -917,8 +1238,18 @@ function createMaskGradingWheel(mask, zone) {
   const wheel = document.createElement("button");
   wheel.className = "color-wheel";
   wheel.type = "button";
-  wheel.append(Object.assign(document.createElement("span"), { className: "wheel-handle" }));
+  const handle = Object.assign(document.createElement("span"), { className: "wheel-handle" });
+  wheel.append(handle);
   updateMaskWheelHandle(wheel, mask.adjustments.colorGrading[key]);
+
+  handle.addEventListener("dblclick", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    mask.adjustments.colorGrading[key].hue = 0;
+    mask.adjustments.colorGrading[key].saturation = 0;
+    updateMaskWheelHandle(wheel, mask.adjustments.colorGrading[key]);
+    scheduleBackendRender();
+  });
 
   wheel.addEventListener("pointerdown", event => {
     event.preventDefault();
@@ -929,6 +1260,12 @@ function createMaskGradingWheel(mask, zone) {
     if (wheel.hasPointerCapture(event.pointerId)) {
       updateMaskGradingFromWheel(wheel, mask.adjustments.colorGrading[key], event);
     }
+  });
+  wheel.addEventListener("pointerup", event => {
+    if (wheel.hasPointerCapture(event.pointerId)) {
+      wheel.releasePointerCapture(event.pointerId);
+    }
+    scheduleBackendRender();
   });
 
   card.append(heading, wheel);
@@ -952,6 +1289,7 @@ function updateMaskGradingFromWheel(wheel, grading, pointerEvent) {
   grading.saturation = Math.round((Math.min(radius, Math.hypot(dx, dy)) / radius) * 100);
   grading.hue = Math.round((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360) % 360;
   updateMaskWheelHandle(wheel, grading);
+  scheduleBackendRender();
 }
 
 function createMaskHslMixer(mask) {
@@ -1023,6 +1361,9 @@ function loadPreview(file) {
   const reader = new FileReader();
 
   reader.onload = event => {
+    originalImageDataUrl = event.target.result;
+    renderedImageDataUrl = originalImageDataUrl;
+
     previewImage.onload = () => {
       previewImage.hidden = false;
       emptyState.hidden = true;
@@ -1030,7 +1371,11 @@ function loadPreview(file) {
       imageStage.classList.add("fit-to-screen");
       fitButton.classList.add("is-active");
       exportButton.disabled = false;
-      statusText.textContent = `${file.name} loaded for UI preview.`;
+      statusText.textContent = backendRenderingAvailable()
+        ? `${file.name} loaded. Rendering Rust preview...`
+        : `${file.name} loaded. Use cargo run --release -- serve for Rust rendering.`;
+      previewImage.onload = null;
+      scheduleBackendRender();
     };
 
     previewImage.onerror = () => {
@@ -1040,7 +1385,7 @@ function loadPreview(file) {
       statusText.textContent = `The browser could not display ${file.name}. Try another JPG or PNG image.`;
     };
 
-    previewImage.src = event.target.result;
+    previewImage.src = originalImageDataUrl;
     previewImage.alt = file.name;
   };
 
@@ -1087,12 +1432,14 @@ function renderMaskOverlay() {
 function renderLinearMaskOverlay(mask) {
   const overlay = document.createElement("div");
   overlay.className = "linear-mask-preview";
+  const linearBand = getLinearMaskBand(mask);
   overlay.style.setProperty("--mask-density", String(mask.density / 100));
-  overlay.style.setProperty("--mask-spread", `${Math.max(8, mask.geometry.spread * 100)}%`);
+  overlay.style.setProperty("--linear-full-line", `${linearBand.fullLine}%`);
+  overlay.style.setProperty("--linear-zero-line", `${linearBand.zeroLine}%`);
   overlay.style.left = `${mask.geometry.centerX * 100}%`;
   overlay.style.top = `${mask.geometry.centerY * 100}%`;
   overlay.style.transform = `translate(-50%, -50%) rotate(${mask.geometry.angle}deg)`;
-  overlay.classList.toggle("is-inverted", mask.inverted);
+  overlay.classList.toggle("is-reversed", linearMaskIsReversed(mask));
   attachMaskDrag(overlay, (event, rect) => {
     mask.geometry.centerX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     mask.geometry.centerY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
@@ -1103,6 +1450,12 @@ function renderLinearMaskOverlay(mask) {
   const centerLine = document.createElement("div");
   centerLine.className = "linear-center-line";
 
+  const fullLine = document.createElement("div");
+  fullLine.className = "linear-feather-line linear-full-line";
+
+  const zeroLine = document.createElement("div");
+  zeroLine.className = "linear-limit-line";
+
   const handle = document.createElement("button");
   handle.className = "mask-handle linear-move-handle";
   handle.type = "button";
@@ -1110,6 +1463,28 @@ function renderLinearMaskOverlay(mask) {
   attachMaskDrag(handle, (event, rect) => {
     mask.geometry.centerX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     mask.geometry.centerY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+    updateLinearMaskOverlay(overlay, mask);
+    updateMaskPanelGeometryValues(mask);
+  });
+
+  const featherHandle = document.createElement("button");
+  featherHandle.className = "mask-handle linear-boundary-handle linear-feather-handle";
+  featherHandle.type = "button";
+  featherHandle.ariaLabel = "Adjust linear gradient width";
+  attachMaskDrag(featherHandle, (event, rect) => {
+    const local = pointerToLinearLocal(mask, event, rect);
+    mask.geometry.spread = clamp(Math.abs(local.y), 0.05, 0.49);
+    updateLinearMaskOverlay(overlay, mask);
+    updateMaskPanelGeometryValues(mask);
+  });
+
+  const limitHandle = document.createElement("button");
+  limitHandle.className = "mask-handle linear-boundary-handle linear-limit-handle";
+  limitHandle.type = "button";
+  limitHandle.ariaLabel = "Adjust linear gradient width";
+  attachMaskDrag(limitHandle, (event, rect) => {
+    const local = pointerToLinearLocal(mask, event, rect);
+    mask.geometry.spread = clamp(Math.abs(local.y), 0.05, 0.49);
     updateLinearMaskOverlay(overlay, mask);
     updateMaskPanelGeometryValues(mask);
   });
@@ -1127,14 +1502,52 @@ function renderLinearMaskOverlay(mask) {
     updateMaskPanelGeometryValues(mask);
   });
 
-  overlay.append(centerLine, handle, rotateHandle);
+  overlay.append(zeroLine, centerLine, fullLine, featherHandle, limitHandle, handle, rotateHandle);
   maskOverlayLayer.append(overlay);
 }
 
 function updateLinearMaskOverlay(overlay, mask) {
+  const linearBand = getLinearMaskBand(mask);
+  overlay.style.setProperty("--linear-full-line", `${linearBand.fullLine}%`);
+  overlay.style.setProperty("--linear-zero-line", `${linearBand.zeroLine}%`);
   overlay.style.left = `${mask.geometry.centerX * 100}%`;
   overlay.style.top = `${mask.geometry.centerY * 100}%`;
   overlay.style.transform = `translate(-50%, -50%) rotate(${mask.geometry.angle}deg)`;
+  overlay.classList.toggle("is-reversed", linearMaskIsReversed(mask));
+}
+
+function linearMaskIsReversed(mask) {
+  return (mask.geometry.side < 0) !== mask.inverted;
+}
+
+function getLinearMaskBand(mask) {
+  const halfWidthPercent = clamp(mask.geometry.spread * 100, 5, 49);
+  const fullSide = linearMaskIsReversed(mask) ? 1 : -1;
+  const zeroSide = -fullSide;
+  const fullLine = clamp(50 + fullSide * halfWidthPercent, 0, 100);
+  const zeroLine = clamp(50 + zeroSide * halfWidthPercent, 0, 100);
+
+  return {
+    fullLine,
+    zeroLine
+  };
+}
+
+function pointerToLinearLocal(mask, event, rect) {
+  const point = {
+    x: (event.clientX - rect.left) / rect.width,
+    y: (event.clientY - rect.top) / rect.height
+  };
+  const dx = point.x - mask.geometry.centerX;
+  const dy = point.y - mask.geometry.centerY;
+  const radians = (-mask.geometry.angle * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+
+  return {
+    x: dx * cos - dy * sin,
+    y: dx * sin + dy * cos
+  };
 }
 
 function renderRadialMaskOverlay(mask) {
@@ -1328,6 +1741,7 @@ function attachRadialMoveDrag(element, mask, onUpdate) {
     }
     startPointer = null;
     startCenter = null;
+    scheduleBackendRender();
   });
 }
 
@@ -1357,6 +1771,7 @@ function attachRadialResizeDrag(element, mask, edge, onUpdate) {
     if (element.hasPointerCapture(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
+    scheduleBackendRender();
   });
 }
 
@@ -1383,6 +1798,7 @@ function attachRadialRotateDrag(element, mask, onUpdate) {
     if (element.hasPointerCapture(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
+    scheduleBackendRender();
   });
 }
 
@@ -1424,6 +1840,7 @@ function renderBrushMaskOverlay(mask) {
     if (maskOverlayLayer.hasPointerCapture(event.pointerId)) {
       maskOverlayLayer.releasePointerCapture(event.pointerId);
     }
+    scheduleBackendRender();
   };
 }
 
@@ -1530,6 +1947,7 @@ function attachMaskDrag(element, onDrag) {
     if (element.hasPointerCapture(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
+    scheduleBackendRender();
   });
 }
 
@@ -1581,19 +1999,25 @@ fitButton.addEventListener("click", () => {
 });
 
 beforeAfterButton.addEventListener("mousedown", () => {
-  beforeAfterButton.textContent = "After";
-  previewImage.classList.add("showing-before");
+  showOriginalPreview();
 });
 
 beforeAfterButton.addEventListener("mouseup", () => {
-  beforeAfterButton.textContent = "Before";
-  previewImage.classList.remove("showing-before");
+  showRenderedPreview();
 });
 
 beforeAfterButton.addEventListener("mouseleave", () => {
-  beforeAfterButton.textContent = "Before";
-  previewImage.classList.remove("showing-before");
+  showRenderedPreview();
 });
+
+beforeAfterButton.addEventListener("touchstart", event => {
+  event.preventDefault();
+  showOriginalPreview();
+});
+
+beforeAfterButton.addEventListener("touchend", showRenderedPreview);
+
+exportButton.addEventListener("click", exportRenderedPreview);
 
 document.querySelectorAll("[data-grading-mode]").forEach(button => {
   button.addEventListener("click", () => {

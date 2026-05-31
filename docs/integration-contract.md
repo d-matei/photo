@@ -1,6 +1,6 @@
 # Frontend / Backend Contract
 
-This document defines the split between the Rust engine and the future frontend.
+This document defines the split between the Rust engine and the frontend.
 
 ## Backend Responsibilities
 
@@ -64,15 +64,107 @@ Current parameter groups:
 - contrast
 - clarity
 - dehaze
+- white balance
+- tonal ranges
+- color grading
+- HSL color mixer
+- masks
 
 Examples of values the frontend should send:
 
-- `exposure: f32`
-- `saturation: f32`
-- `contrast: f32`
-- `clarity: f32`
-- `dehaze: f32`
-- advanced tuning values when needed
+- `global`: one adjustment object for full-image edits
+- `masks`: a list of mask definitions, each with its own adjustment object
+- each mask has `enabled`, `density`, `inverted`, `shape`, and `adjustments`
+- masked edits use the same Rust algorithms as global edits, then blend by per-pixel mask strength
+
+## Current Render Request Shape
+
+The connected frontend/backend app runs with:
+
+```powershell
+cargo run --release -- serve
+```
+
+Then open:
+
+```text
+http://127.0.0.1:7878
+```
+
+The frontend sends a render request to:
+
+```text
+POST /api/render
+```
+
+The request shape is:
+
+```js
+{
+  image_data_url,
+  params
+}
+```
+
+The frontend also exposes this helper for inspecting the current params:
+
+```js
+window.RawPhotoEditorFrontend.buildBackendRenderRequest()
+```
+
+It returns:
+
+```js
+{
+  global: {
+    exposure,
+    whites,
+    highlights,
+    shadows,
+    blacks,
+    temperature,
+    tint,
+    global_grading_hue,
+    global_grading_intensity,
+    shadows_grading_hue,
+    shadows_grading_intensity,
+    midtones_grading_hue,
+    midtones_grading_intensity,
+    highlights_grading_hue,
+    highlights_grading_intensity,
+    color_grading_reference,
+    mixer_hue,
+    mixer_saturation,
+    mixer_luminance,
+    saturation,
+    contrast,
+    dehaze,
+    clarity
+  },
+  masks: [
+    {
+      id,
+      name,
+      enabled,
+      density,
+      inverted,
+      shape,
+      adjustments
+    }
+  ]
+}
+```
+
+The Rust backend equivalent lives in:
+
+- `src/pipeline/render.rs`
+- `src/pipeline/masking.rs`
+
+Linear gradient masks follow the Lightroom-style signed-distance formula:
+
+```text
+strength = clamp(signed_distance / half_width + 0.5, 0.0, 1.0)
+```
 
 ## Practical Workflow
 
@@ -87,7 +179,7 @@ Frontend developer works mostly in:
 
 - `frontend/`
 
-When the real app bridge is added later, create a thin integration layer instead of moving algorithm code into the frontend.
+The current bridge is a thin local HTTP layer in `src/server.rs`; algorithm code stays in Rust pipeline files, not in the frontend.
 
 ## Recommended Integration Path
 
@@ -98,16 +190,9 @@ Phase 1:
 
 Phase 2:
 
-- add a bridge between frontend and backend
-- likely options:
-  - Tauri desktop app
-  - local HTTP API
-  - direct native integration later
-
-Phase 3:
-
 - retire the browser playground
 - keep the Rust tester only as an internal dev tool
+- move from the temporary local HTTP bridge to a final desktop shell when ready
 
 ## Rule
 

@@ -2608,6 +2608,8 @@ dependencies = [
  "eframe",
  "image",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

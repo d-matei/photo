@@ -1,22 +1,14 @@
 use eframe::egui;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb, RgbImage};
-use raw_photo_editor::pipeline::clarity::{apply_clarity_rgb, ClarityConfig};
 use raw_photo_editor::pipeline::color::RgbPixel;
-use raw_photo_editor::pipeline::color_balance::{
-    adjust_color_balance_pixel, ColorBalanceAdjustments,
+use raw_photo_editor::pipeline::color_mixer::{COLOR_MIXER_ZONES, COLOR_MIXER_ZONE_COUNT};
+use raw_photo_editor::pipeline::masking::{
+    BrushMask, BrushStroke, LinearGradientMask, MaskDefinition, MaskShape, RadialGradientMask,
 };
-use raw_photo_editor::pipeline::color_grading::{
-    adjust_color_grading_pixel, ColorGradingAdjustments,
+use raw_photo_editor::pipeline::render::{
+    render_rgb, AdjustmentValues, RenderParams, RenderedImage,
 };
-use raw_photo_editor::pipeline::color_mixer::{
-    adjust_color_mixer_pixel, ColorMixerAdjustments, COLOR_MIXER_ZONES, COLOR_MIXER_ZONE_COUNT,
-};
-use raw_photo_editor::pipeline::contrast::{adjust_contrast_value, ContrastConfig};
-use raw_photo_editor::pipeline::dehaze::{apply_dehaze_rgb, DehazeConfig};
-use raw_photo_editor::pipeline::exposure::adjust_exposure_value;
-use raw_photo_editor::pipeline::saturation::adjust_saturation_pixel;
-use raw_photo_editor::pipeline::tonal_ranges::{adjust_tonal_ranges_pixel, TonalRangeAdjustments};
 use rfd::FileDialog;
 use std::ops::RangeInclusive;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -76,6 +68,35 @@ struct UiParams {
     clarity_negative_reference_offset: f32,
     clarity_positive_saturation_compensation: f32,
     clarity_negative_saturation_compensation: f32,
+    linear_mask_enabled: bool,
+    linear_mask_density: f32,
+    linear_mask_inverted: bool,
+    linear_mask_center_x: f32,
+    linear_mask_center_y: f32,
+    linear_mask_angle: f32,
+    linear_mask_half_width: f32,
+    linear_mask_side: f32,
+    radial_mask_enabled: bool,
+    radial_mask_density: f32,
+    radial_mask_inverted: bool,
+    radial_mask_center_x: f32,
+    radial_mask_center_y: f32,
+    radial_mask_radius_x: f32,
+    radial_mask_radius_y: f32,
+    radial_mask_rotation: f32,
+    radial_mask_feather: f32,
+    brush_mask_enabled: bool,
+    brush_mask_density: f32,
+    brush_mask_inverted: bool,
+    brush_mask_center_x: f32,
+    brush_mask_center_y: f32,
+    brush_mask_radius: f32,
+    brush_mask_feather: f32,
+    mask_exposure: f32,
+    mask_contrast: f32,
+    mask_saturation: f32,
+    mask_dehaze: f32,
+    mask_clarity: f32,
 }
 
 impl Default for UiParams {
@@ -113,6 +134,35 @@ impl Default for UiParams {
             clarity_negative_reference_offset: 28.0,
             clarity_positive_saturation_compensation: 0.38,
             clarity_negative_saturation_compensation: 0.72,
+            linear_mask_enabled: false,
+            linear_mask_density: 100.0,
+            linear_mask_inverted: false,
+            linear_mask_center_x: 0.5,
+            linear_mask_center_y: 0.5,
+            linear_mask_angle: 0.0,
+            linear_mask_half_width: 0.28,
+            linear_mask_side: 1.0,
+            radial_mask_enabled: false,
+            radial_mask_density: 100.0,
+            radial_mask_inverted: false,
+            radial_mask_center_x: 0.5,
+            radial_mask_center_y: 0.5,
+            radial_mask_radius_x: 0.28,
+            radial_mask_radius_y: 0.22,
+            radial_mask_rotation: 0.0,
+            radial_mask_feather: 0.5,
+            brush_mask_enabled: false,
+            brush_mask_density: 100.0,
+            brush_mask_inverted: false,
+            brush_mask_center_x: 0.5,
+            brush_mask_center_y: 0.5,
+            brush_mask_radius: 0.18,
+            brush_mask_feather: 0.5,
+            mask_exposure: 0.0,
+            mask_contrast: 0.0,
+            mask_saturation: 0.0,
+            mask_dehaze: 0.0,
+            mask_clarity: 0.0,
         }
     }
 }
@@ -121,12 +171,6 @@ struct LoadedImage {
     path: PathBuf,
     full_res: RgbImage,
     preview_res: RgbImage,
-}
-
-struct RenderedImage {
-    pixels: Vec<RgbPixel>,
-    width: usize,
-    height: usize,
 }
 
 struct TesterApp {
@@ -518,6 +562,203 @@ impl TesterApp {
             "Clarity",
             defaults.clarity,
         );
+
+        ui.add_space(10.0);
+        ui.collapsing("Linear Mask", |ui| {
+            ui.label("Applies the mask sliders through a Lightroom-style linear gradient.");
+            params_changed |= ui
+                .checkbox(&mut self.params.linear_mask_enabled, "Enable Linear Mask")
+                .changed();
+            params_changed |= ui
+                .checkbox(&mut self.params.linear_mask_inverted, "Invert Mask")
+                .changed();
+            let mut use_opposite_side = self.params.linear_mask_side < 0.0;
+            if ui.checkbox(&mut use_opposite_side, "Flip Side").changed() {
+                self.params.linear_mask_side = if use_opposite_side { -1.0 } else { 1.0 };
+                params_changed = true;
+            }
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.linear_mask_density,
+                0.0..=100.0,
+                "Mask Density",
+                defaults.linear_mask_density,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.linear_mask_center_x,
+                0.0..=1.0,
+                "Center X",
+                defaults.linear_mask_center_x,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.linear_mask_center_y,
+                0.0..=1.0,
+                "Center Y",
+                defaults.linear_mask_center_y,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.linear_mask_angle,
+                -180.0..=180.0,
+                "Angle",
+                defaults.linear_mask_angle,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.linear_mask_half_width,
+                0.05..=0.49,
+                "Half Width",
+                defaults.linear_mask_half_width,
+            );
+        });
+
+        ui.add_space(10.0);
+        ui.collapsing("Radial Mask", |ui| {
+            ui.label("Applies the mask sliders through an elliptical radial gradient.");
+            params_changed |= ui
+                .checkbox(&mut self.params.radial_mask_enabled, "Enable Radial Mask")
+                .changed();
+            params_changed |= ui
+                .checkbox(&mut self.params.radial_mask_inverted, "Invert Mask")
+                .changed();
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_density,
+                0.0..=100.0,
+                "Mask Density",
+                defaults.radial_mask_density,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_center_x,
+                0.0..=1.0,
+                "Center X",
+                defaults.radial_mask_center_x,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_center_y,
+                0.0..=1.0,
+                "Center Y",
+                defaults.radial_mask_center_y,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_radius_x,
+                0.05..=0.8,
+                "Radius X",
+                defaults.radial_mask_radius_x,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_radius_y,
+                0.05..=0.8,
+                "Radius Y",
+                defaults.radial_mask_radius_y,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_rotation,
+                -180.0..=180.0,
+                "Rotation",
+                defaults.radial_mask_rotation,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.radial_mask_feather,
+                0.0..=1.0,
+                "Feather",
+                defaults.radial_mask_feather,
+            );
+        });
+
+        ui.add_space(10.0);
+        ui.collapsing("Brush Mask", |ui| {
+            ui.label("Applies the mask sliders through one soft brush spot for backend testing.");
+            params_changed |= ui
+                .checkbox(&mut self.params.brush_mask_enabled, "Enable Brush Mask")
+                .changed();
+            params_changed |= ui
+                .checkbox(&mut self.params.brush_mask_inverted, "Invert Mask")
+                .changed();
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.brush_mask_density,
+                0.0..=100.0,
+                "Mask Density",
+                defaults.brush_mask_density,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.brush_mask_center_x,
+                0.0..=1.0,
+                "Center X",
+                defaults.brush_mask_center_x,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.brush_mask_center_y,
+                0.0..=1.0,
+                "Center Y",
+                defaults.brush_mask_center_y,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.brush_mask_radius,
+                0.02..=0.8,
+                "Radius",
+                defaults.brush_mask_radius,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.brush_mask_feather,
+                0.0..=1.0,
+                "Feather",
+                defaults.brush_mask_feather,
+            );
+        });
+
+        ui.add_space(10.0);
+        ui.collapsing("Masked Adjustments", |ui| {
+            ui.label("These adjustment sliders are applied through every enabled mask.");
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.mask_exposure,
+                -100.0..=100.0,
+                "Mask Exposure",
+                defaults.mask_exposure,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.mask_contrast,
+                -1.0..=1.0,
+                "Mask Contrast",
+                defaults.mask_contrast,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.mask_saturation,
+                -1.0..=1.0,
+                "Mask Saturation",
+                defaults.mask_saturation,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.mask_dehaze,
+                -1.0..=1.0,
+                "Mask Dehaze",
+                defaults.mask_dehaze,
+            );
+            params_changed |= add_precise_slider_f32(
+                ui,
+                &mut self.params.mask_clarity,
+                -1.0..=1.0,
+                "Mask Clarity",
+                defaults.mask_clarity,
+            );
+        });
 
         ui.add_space(10.0);
         ui.collapsing("Advanced Tuning", |ui| {
@@ -950,128 +1191,131 @@ fn process_pipeline(
     height: usize,
     params: &UiParams,
 ) -> RenderedImage {
-    let mut pixels = original_pixels.to_vec();
+    render_rgb(original_pixels, width, height, &build_render_params(params))
+}
 
-    if params.exposure != 0.0 {
-        pixels.iter_mut().for_each(|pixel| {
-            pixel.r = adjust_exposure_value(pixel.r, params.exposure);
-            pixel.g = adjust_exposure_value(pixel.g, params.exposure);
-            pixel.b = adjust_exposure_value(pixel.b, params.exposure);
+fn build_render_params(params: &UiParams) -> RenderParams {
+    let mut render_params = RenderParams {
+        global: adjustment_values_from_ui(params),
+        masks: Vec::new(),
+    };
+
+    let mask_adjustments = masked_adjustment_values_from_ui(params);
+    if params.linear_mask_enabled && mask_adjustments.is_active() {
+        render_params.masks.push(MaskDefinition {
+            id: "tester-linear-mask".to_string(),
+            name: "Tester Linear Mask".to_string(),
+            enabled: true,
+            density: params.linear_mask_density,
+            inverted: params.linear_mask_inverted,
+            shape: MaskShape::LinearGradient(LinearGradientMask {
+                center_x: params.linear_mask_center_x,
+                center_y: params.linear_mask_center_y,
+                angle_degrees: params.linear_mask_angle,
+                half_width: params.linear_mask_half_width,
+                side: params.linear_mask_side,
+            }),
+            adjustments: mask_adjustments,
         });
     }
 
-    let tonal_adjustments = TonalRangeAdjustments {
+    if params.radial_mask_enabled && mask_adjustments.is_active() {
+        render_params.masks.push(MaskDefinition {
+            id: "tester-radial-mask".to_string(),
+            name: "Tester Radial Mask".to_string(),
+            enabled: true,
+            density: params.radial_mask_density,
+            inverted: params.radial_mask_inverted,
+            shape: MaskShape::RadialGradient(RadialGradientMask {
+                center_x: params.radial_mask_center_x,
+                center_y: params.radial_mask_center_y,
+                radius_x: params.radial_mask_radius_x,
+                radius_y: params.radial_mask_radius_y,
+                rotation_degrees: params.radial_mask_rotation,
+                feather: params.radial_mask_feather,
+            }),
+            adjustments: mask_adjustments,
+        });
+    }
+
+    if params.brush_mask_enabled && mask_adjustments.is_active() {
+        render_params.masks.push(MaskDefinition {
+            id: "tester-brush-mask".to_string(),
+            name: "Tester Brush Mask".to_string(),
+            enabled: true,
+            density: params.brush_mask_density,
+            inverted: params.brush_mask_inverted,
+            shape: MaskShape::Brush(BrushMask {
+                strokes: vec![BrushStroke {
+                    center_x: params.brush_mask_center_x,
+                    center_y: params.brush_mask_center_y,
+                    radius: params.brush_mask_radius,
+                    feather: params.brush_mask_feather,
+                    flow: 1.0,
+                    erase: false,
+                }],
+            }),
+            adjustments: mask_adjustments,
+        });
+    }
+
+    render_params
+}
+
+fn adjustment_values_from_ui(params: &UiParams) -> AdjustmentValues {
+    AdjustmentValues {
+        exposure: params.exposure,
         whites: params.whites,
         highlights: params.highlights,
         shadows: params.shadows,
         blacks: params.blacks,
-    };
-    if tonal_adjustments != TonalRangeAdjustments::default() {
-        pixels.iter_mut().for_each(|pixel| {
-            *pixel = adjust_tonal_ranges_pixel(*pixel, tonal_adjustments);
-        });
-    }
-
-    let color_balance_adjustments = ColorBalanceAdjustments {
         temperature: params.temperature,
         tint: params.tint,
-    };
-    if color_balance_adjustments.is_active() {
-        pixels.iter_mut().for_each(|pixel| {
-            *pixel = adjust_color_balance_pixel(*pixel, color_balance_adjustments);
-        });
+        global_grading_hue: params.global_grading_hue,
+        global_grading_intensity: params.global_grading_intensity,
+        shadows_grading_hue: params.shadows_grading_hue,
+        shadows_grading_intensity: params.shadows_grading_intensity,
+        midtones_grading_hue: params.midtones_grading_hue,
+        midtones_grading_intensity: params.midtones_grading_intensity,
+        highlights_grading_hue: params.highlights_grading_hue,
+        highlights_grading_intensity: params.highlights_grading_intensity,
+        color_grading_reference: params.color_grading_reference,
+        mixer_hue: params.mixer_hue,
+        mixer_saturation: params.mixer_saturation,
+        mixer_luminance: params.mixer_luminance,
+        saturation: params.saturation,
+        contrast: params.contrast,
+        dehaze: params.dehaze,
+        clarity: params.clarity,
+        contrast_reference: params.contrast_reference,
+        contrast_gamma: params.contrast_gamma,
+        dehaze_block_size: params.dehaze_block_size,
+        dehaze_negative_reference_offset: params.dehaze_negative_reference_offset,
+        dehaze_positive_saturation_boost: params.dehaze_positive_saturation_boost,
+        clarity_block_size: params.clarity_block_size,
+        clarity_negative_reference_offset: params.clarity_negative_reference_offset,
+        clarity_positive_saturation_compensation: params.clarity_positive_saturation_compensation,
+        clarity_negative_saturation_compensation: params.clarity_negative_saturation_compensation,
     }
+}
 
-    let color_grading_adjustments = ColorGradingAdjustments {
-        global_hue: params.global_grading_hue,
-        global_intensity: params.global_grading_intensity,
-        reference_shift: params.color_grading_reference,
-        shadows_hue: params.shadows_grading_hue,
-        shadows_intensity: params.shadows_grading_intensity,
-        midtones_hue: params.midtones_grading_hue,
-        midtones_intensity: params.midtones_grading_intensity,
-        highlights_hue: params.highlights_grading_hue,
-        highlights_intensity: params.highlights_grading_intensity,
-    };
-    if color_grading_adjustments.is_active() {
-        pixels.iter_mut().for_each(|pixel| {
-            *pixel = adjust_color_grading_pixel(*pixel, color_grading_adjustments);
-        });
-    }
-
-    let color_mixer_adjustments = ColorMixerAdjustments {
-        hue: params.mixer_hue,
-        saturation: params.mixer_saturation,
-        luminance: params.mixer_luminance,
-    };
-    if color_mixer_adjustments.is_active() {
-        pixels.iter_mut().for_each(|pixel| {
-            *pixel = adjust_color_mixer_pixel(*pixel, color_mixer_adjustments);
-        });
-    }
-
-    if params.saturation != 0.0 {
-        pixels = pixels
-            .into_iter()
-            .map(|pixel| adjust_saturation_pixel(pixel, params.saturation))
-            .collect();
-    }
-
-    let contrast_config = ContrastConfig {
-        reference: params.contrast_reference,
-        gamma: params.contrast_gamma,
-        max_shift: ContrastConfig::default().max_shift,
-    };
-
-    if params.contrast != 0.0 {
-        pixels.iter_mut().for_each(|pixel| {
-            pixel.r = adjust_contrast_value(pixel.r, params.contrast, contrast_config);
-            pixel.g = adjust_contrast_value(pixel.g, params.contrast, contrast_config);
-            pixel.b = adjust_contrast_value(pixel.b, params.contrast, contrast_config);
-        });
-    }
-
-    if params.dehaze != 0.0 {
-        pixels = apply_dehaze_rgb(
-            &pixels,
-            original_pixels,
-            width,
-            height,
-            params.dehaze,
-            DehazeConfig {
-                block_size: params.dehaze_block_size,
-                contrast_boost: DehazeConfig::default().contrast_boost,
-                negative_contrast_reference_offset: params.dehaze_negative_reference_offset,
-                positive_saturation_boost: params.dehaze_positive_saturation_boost,
-                positive_uses_global_reference: DehazeConfig::default()
-                    .positive_uses_global_reference,
-            },
-            contrast_config,
-        );
-    }
-
-    if params.clarity != 0.0 {
-        pixels = apply_clarity_rgb(
-            &pixels,
-            original_pixels,
-            width,
-            height,
-            params.clarity,
-            ClarityConfig {
-                block_size: params.clarity_block_size,
-                contrast_boost: ClarityConfig::default().contrast_boost,
-                negative_contrast_reference_offset: params.clarity_negative_reference_offset,
-                positive_saturation_compensation: params.clarity_positive_saturation_compensation,
-                negative_saturation_compensation: params.clarity_negative_saturation_compensation,
-            },
-            contrast_config,
-        );
-    }
-
-    RenderedImage {
-        pixels,
-        width,
-        height,
+fn masked_adjustment_values_from_ui(params: &UiParams) -> AdjustmentValues {
+    AdjustmentValues {
+        exposure: params.mask_exposure,
+        contrast: params.mask_contrast,
+        saturation: params.mask_saturation,
+        dehaze: params.mask_dehaze,
+        clarity: params.mask_clarity,
+        contrast_reference: params.contrast_reference,
+        contrast_gamma: params.contrast_gamma,
+        dehaze_block_size: params.dehaze_block_size,
+        dehaze_negative_reference_offset: params.dehaze_negative_reference_offset,
+        dehaze_positive_saturation_boost: params.dehaze_positive_saturation_boost,
+        clarity_block_size: params.clarity_block_size,
+        clarity_negative_reference_offset: params.clarity_negative_reference_offset,
+        clarity_positive_saturation_compensation: params.clarity_positive_saturation_compensation,
+        clarity_negative_saturation_compensation: params.clarity_negative_saturation_compensation,
+        ..AdjustmentValues::default()
     }
 }
 
