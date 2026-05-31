@@ -2,9 +2,10 @@
 Color Grading Adjustment Idea
 
 - The image is split into three luminance-based zones: shadows, midtones, and highlights.
-- Each zone has two controls:
+- Each zone has three controls:
   * Hue selects the color tint that will be added to that luminance zone.
   * Intensity selects how strongly that tint is added.
+  * Luminance raises or lowers brightness inside the same zone influence mask.
 - There is also a global color grading control:
   * it affects the whole image
   * it is strongest at 50% luminance
@@ -31,19 +32,24 @@ Color Grading Adjustment Idea
 use crate::pipeline::color::RgbPixel;
 
 const MAX_COLOR_SHIFT: f32 = 44.0;
+const MAX_LUMINANCE_SHIFT: f32 = 48.0;
 const GLOBAL_MIN_INFLUENCE: f32 = 0.86;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ColorGradingAdjustments {
     pub global_hue: f32,
     pub global_intensity: f32,
+    pub global_luminance: f32,
     pub reference_shift: f32,
     pub shadows_hue: f32,
     pub shadows_intensity: f32,
+    pub shadows_luminance: f32,
     pub midtones_hue: f32,
     pub midtones_intensity: f32,
+    pub midtones_luminance: f32,
     pub highlights_hue: f32,
     pub highlights_intensity: f32,
+    pub highlights_luminance: f32,
 }
 
 impl ColorGradingAdjustments {
@@ -52,6 +58,10 @@ impl ColorGradingAdjustments {
             || self.shadows_intensity != 0.0
             || self.midtones_intensity != 0.0
             || self.highlights_intensity != 0.0
+            || self.global_luminance != 0.0
+            || self.shadows_luminance != 0.0
+            || self.midtones_luminance != 0.0
+            || self.highlights_luminance != 0.0
     }
 }
 
@@ -76,37 +86,53 @@ pub fn adjust_color_grading_pixel(
 
     let luma = luminance(pixel) / 255.0;
     let mut delta = ColorDelta::default();
+    let mut luminance_delta = 0.0;
     let reference_coefficient = reference_shift_to_coefficient(adjustments.reference_shift);
 
+    let global_zone_weight = global_weight(luma);
     add_zone_delta(
         &mut delta,
         adjustments.global_hue,
         adjustments.global_intensity,
-        global_weight(luma),
+        global_zone_weight,
     );
+    add_luminance_delta(&mut luminance_delta, adjustments.global_luminance, global_zone_weight);
+
+    let shadows_zone_weight = shadows_weight_with_reference(luma, reference_coefficient);
     add_zone_delta(
         &mut delta,
         adjustments.shadows_hue,
         adjustments.shadows_intensity,
-        shadows_weight_with_reference(luma, reference_coefficient),
+        shadows_zone_weight,
     );
+    add_luminance_delta(&mut luminance_delta, adjustments.shadows_luminance, shadows_zone_weight);
+
+    let midtones_zone_weight = midtones_weight_with_reference(luma, reference_coefficient);
     add_zone_delta(
         &mut delta,
         adjustments.midtones_hue,
         adjustments.midtones_intensity,
-        midtones_weight_with_reference(luma, reference_coefficient),
+        midtones_zone_weight,
     );
+    add_luminance_delta(&mut luminance_delta, adjustments.midtones_luminance, midtones_zone_weight);
+
+    let highlights_zone_weight = highlights_weight_with_reference(luma, reference_coefficient);
     add_zone_delta(
         &mut delta,
         adjustments.highlights_hue,
         adjustments.highlights_intensity,
-        highlights_weight_with_reference(luma, reference_coefficient),
+        highlights_zone_weight,
+    );
+    add_luminance_delta(
+        &mut luminance_delta,
+        adjustments.highlights_luminance,
+        highlights_zone_weight,
     );
 
     RgbPixel {
-        r: shift_channel(pixel.r, delta.r),
-        g: shift_channel(pixel.g, delta.g),
-        b: shift_channel(pixel.b, delta.b),
+        r: shift_channel(pixel.r, delta.r + luminance_delta),
+        g: shift_channel(pixel.g, delta.g + luminance_delta),
+        b: shift_channel(pixel.b, delta.b + luminance_delta),
     }
 }
 
@@ -154,6 +180,14 @@ fn add_zone_delta(delta: &mut ColorDelta, hue: f32, intensity: f32, zone_weight:
     delta.r += strength * coeffs.r;
     delta.g += strength * coeffs.g;
     delta.b += strength * coeffs.b;
+}
+
+fn add_luminance_delta(delta: &mut f32, luminance_shift: f32, zone_weight: f32) {
+    if luminance_shift == 0.0 || zone_weight == 0.0 {
+        return;
+    }
+
+    *delta += (luminance_shift / 100.0).clamp(-1.0, 1.0) * zone_weight * MAX_LUMINANCE_SHIFT;
 }
 
 fn hue_to_rgb_coefficients(hue_degrees: f32) -> ColorDelta {
@@ -312,5 +346,21 @@ mod tests {
         assert!(adjusted.r > pixel.r);
         assert_eq!(adjusted.g, pixel.g);
         assert_eq!(adjusted.b, pixel.b);
+    }
+
+    #[test]
+    fn highlight_luminance_lifts_bright_pixels_evenly() {
+        let pixel = RgbPixel::new(200, 180, 160);
+        let adjusted = adjust_color_grading_pixel(
+            pixel,
+            ColorGradingAdjustments {
+                highlights_luminance: 100.0,
+                ..ColorGradingAdjustments::default()
+            },
+        );
+
+        assert!(adjusted.r > pixel.r);
+        assert!(adjusted.g > pixel.g);
+        assert!(adjusted.b > pixel.b);
     }
 }

@@ -518,7 +518,8 @@ function renderColorGradingZone(zone) {
   card.append(
     heading,
     createMiniControl(`${zoneKey}_grading_hue`, "Hue", 0, 360, 1, 0, 0),
-    createMiniControl(`${zoneKey}_grading_saturation`, "Saturation", 0, 100, 1, 0, 0)
+    createMiniControl(`${zoneKey}_grading_saturation`, "Saturation", 0, 100, 1, 0, 0),
+    createMiniControl(`${zoneKey}_grading_luminance`, "Luminance", -100, 100, 1, 0, 0)
   );
 
   controlGroups.colorGrading.append(card);
@@ -615,6 +616,7 @@ function renderColorGradingWheel(zone) {
   });
 
   card.append(heading, wheel);
+  card.append(createMiniControl(`${zone.toLowerCase()}_grading_luminance`, "Luminance", -100, 100, 1, 0, 0));
   controlGroups.colorGrading.append(card);
 }
 
@@ -760,10 +762,10 @@ function createDefaultMaskAdjustments() {
       saturation: 0
     },
     colorGrading: {
-      shadows: { hue: 0, saturation: 0 },
-      midtones: { hue: 0, saturation: 0 },
-      highlights: { hue: 0, saturation: 0 },
-      global: { hue: 0, saturation: 0 }
+      shadows: { hue: 0, saturation: 0, luminance: 0 },
+      midtones: { hue: 0, saturation: 0, luminance: 0 },
+      highlights: { hue: 0, saturation: 0, luminance: 0 },
+      global: { hue: 0, saturation: 0, luminance: 0 }
     },
     hsl: Object.fromEntries(
       hslColors.map(color => [
@@ -785,12 +787,16 @@ function defaultBackendAdjustmentValues() {
     tint: 0,
     global_grading_hue: 35,
     global_grading_intensity: 0,
+    global_grading_luminance: 0,
     shadows_grading_hue: 220,
     shadows_grading_intensity: 0,
+    shadows_grading_luminance: 0,
     midtones_grading_hue: 35,
     midtones_grading_intensity: 0,
+    midtones_grading_luminance: 0,
     highlights_grading_hue: 45,
     highlights_grading_intensity: 0,
+    highlights_grading_luminance: 0,
     color_grading_reference: 0,
     mixer_hue: hslColors.map(() => 0),
     mixer_saturation: hslColors.map(() => 0),
@@ -828,19 +834,23 @@ function buildGlobalAdjustmentValues() {
   applyBackendColorGrading(values, {
     global: {
       hue: state.global_grading_hue ?? values.global_grading_hue,
-      saturation: state.global_grading_saturation ?? 0
+      saturation: state.global_grading_saturation ?? 0,
+      luminance: state.global_grading_luminance ?? 0
     },
     shadows: {
       hue: state.shadows_grading_hue ?? values.shadows_grading_hue,
-      saturation: state.shadows_grading_saturation ?? 0
+      saturation: state.shadows_grading_saturation ?? 0,
+      luminance: state.shadows_grading_luminance ?? 0
     },
     midtones: {
       hue: state.midtones_grading_hue ?? values.midtones_grading_hue,
-      saturation: state.midtones_grading_saturation ?? 0
+      saturation: state.midtones_grading_saturation ?? 0,
+      luminance: state.midtones_grading_luminance ?? 0
     },
     highlights: {
       hue: state.highlights_grading_hue ?? values.highlights_grading_hue,
-      saturation: state.highlights_grading_saturation ?? 0
+      saturation: state.highlights_grading_saturation ?? 0,
+      luminance: state.highlights_grading_luminance ?? 0
     }
   });
   applyBackendHsl(values, Object.fromEntries(
@@ -883,12 +893,16 @@ function buildMaskAdjustmentValues(maskAdjustments) {
 function applyBackendColorGrading(values, grading) {
   values.global_grading_hue = grading.global.hue;
   values.global_grading_intensity = grading.global.saturation;
+  values.global_grading_luminance = grading.global.luminance ?? 0;
   values.shadows_grading_hue = grading.shadows.hue;
   values.shadows_grading_intensity = grading.shadows.saturation;
+  values.shadows_grading_luminance = grading.shadows.luminance ?? 0;
   values.midtones_grading_hue = grading.midtones.hue;
   values.midtones_grading_intensity = grading.midtones.saturation;
+  values.midtones_grading_luminance = grading.midtones.luminance ?? 0;
   values.highlights_grading_hue = grading.highlights.hue;
   values.highlights_grading_intensity = grading.highlights.saturation;
+  values.highlights_grading_luminance = grading.highlights.luminance ?? 0;
 }
 
 function applyBackendHsl(values, hsl) {
@@ -1452,6 +1466,9 @@ function createMaskGradingSliders(mask, zone) {
     }, 0, "mini-control hue-slider"),
     createMaskSlider("Saturation", mask.adjustments.colorGrading[key].saturation, 0, 100, 1, value => {
       mask.adjustments.colorGrading[key].saturation = value;
+    }, 0, "mini-control"),
+    createMaskSlider("Luminance", mask.adjustments.colorGrading[key].luminance ?? 0, -100, 100, 1, value => {
+      mask.adjustments.colorGrading[key].luminance = value;
     }, 0, "mini-control")
   );
 
@@ -1505,7 +1522,13 @@ function createMaskGradingWheel(mask, zone) {
     scheduleBackendRender();
   });
 
-  card.append(heading, wheel);
+  card.append(
+    heading,
+    wheel,
+    createMaskSlider("Luminance", mask.adjustments.colorGrading[key].luminance ?? 0, -100, 100, 1, value => {
+      mask.adjustments.colorGrading[key].luminance = value;
+    }, 0, "mini-control")
+  );
   return card;
 }
 

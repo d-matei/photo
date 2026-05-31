@@ -645,18 +645,26 @@ struct AdjustmentValuesDto {
     global_grading_hue: f32,
     #[serde(default)]
     global_grading_intensity: f32,
+    #[serde(default)]
+    global_grading_luminance: f32,
     #[serde(default = "default_shadows_hue")]
     shadows_grading_hue: f32,
     #[serde(default)]
     shadows_grading_intensity: f32,
+    #[serde(default)]
+    shadows_grading_luminance: f32,
     #[serde(default = "default_midtones_hue")]
     midtones_grading_hue: f32,
     #[serde(default)]
     midtones_grading_intensity: f32,
+    #[serde(default)]
+    midtones_grading_luminance: f32,
     #[serde(default = "default_highlights_hue")]
     highlights_grading_hue: f32,
     #[serde(default)]
     highlights_grading_intensity: f32,
+    #[serde(default)]
+    highlights_grading_luminance: f32,
     #[serde(default)]
     color_grading_reference: f32,
     #[serde(default)]
@@ -705,12 +713,16 @@ impl AdjustmentValuesDto {
             tint: self.tint,
             global_grading_hue: self.global_grading_hue,
             global_grading_intensity: self.global_grading_intensity,
+            global_grading_luminance: self.global_grading_luminance,
             shadows_grading_hue: self.shadows_grading_hue,
             shadows_grading_intensity: self.shadows_grading_intensity,
+            shadows_grading_luminance: self.shadows_grading_luminance,
             midtones_grading_hue: self.midtones_grading_hue,
             midtones_grading_intensity: self.midtones_grading_intensity,
+            midtones_grading_luminance: self.midtones_grading_luminance,
             highlights_grading_hue: self.highlights_grading_hue,
             highlights_grading_intensity: self.highlights_grading_intensity,
+            highlights_grading_luminance: self.highlights_grading_luminance,
             color_grading_reference: self.color_grading_reference,
             mixer_hue: fixed_mixer_values(&self.mixer_hue),
             mixer_saturation: fixed_mixer_values(&self.mixer_saturation),

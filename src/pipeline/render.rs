@@ -43,12 +43,16 @@ pub struct AdjustmentValues {
     pub tint: f32,
     pub global_grading_hue: f32,
     pub global_grading_intensity: f32,
+    pub global_grading_luminance: f32,
     pub shadows_grading_hue: f32,
     pub shadows_grading_intensity: f32,
+    pub shadows_grading_luminance: f32,
     pub midtones_grading_hue: f32,
     pub midtones_grading_intensity: f32,
+    pub midtones_grading_luminance: f32,
     pub highlights_grading_hue: f32,
     pub highlights_grading_intensity: f32,
+    pub highlights_grading_luminance: f32,
     pub color_grading_reference: f32,
     pub mixer_hue: [f32; COLOR_MIXER_ZONE_COUNT],
     pub mixer_saturation: [f32; COLOR_MIXER_ZONE_COUNT],
@@ -80,12 +84,16 @@ impl Default for AdjustmentValues {
             tint: 0.0,
             global_grading_hue: 35.0,
             global_grading_intensity: 0.0,
+            global_grading_luminance: 0.0,
             shadows_grading_hue: 220.0,
             shadows_grading_intensity: 0.0,
+            shadows_grading_luminance: 0.0,
             midtones_grading_hue: 35.0,
             midtones_grading_intensity: 0.0,
+            midtones_grading_luminance: 0.0,
             highlights_grading_hue: 45.0,
             highlights_grading_intensity: 0.0,
+            highlights_grading_luminance: 0.0,
             color_grading_reference: 0.0,
             mixer_hue: [0.0; COLOR_MIXER_ZONE_COUNT],
             mixer_saturation: [0.0; COLOR_MIXER_ZONE_COUNT],
@@ -120,6 +128,10 @@ impl AdjustmentValues {
             || self.shadows_grading_intensity != 0.0
             || self.midtones_grading_intensity != 0.0
             || self.highlights_grading_intensity != 0.0
+            || self.global_grading_luminance != 0.0
+            || self.shadows_grading_luminance != 0.0
+            || self.midtones_grading_luminance != 0.0
+            || self.highlights_grading_luminance != 0.0
             || self.mixer_hue.iter().any(|&value| value != 0.0)
             || self.mixer_saturation.iter().any(|&value| value != 0.0)
             || self.mixer_luminance.iter().any(|&value| value != 0.0)
@@ -315,13 +327,17 @@ pub fn apply_adjustments_with_cache(
     let color_grading_adjustments = ColorGradingAdjustments {
         global_hue: adjustments.global_grading_hue,
         global_intensity: adjustments.global_grading_intensity,
+        global_luminance: adjustments.global_grading_luminance,
         reference_shift: adjustments.color_grading_reference,
         shadows_hue: adjustments.shadows_grading_hue,
         shadows_intensity: adjustments.shadows_grading_intensity,
+        shadows_luminance: adjustments.shadows_grading_luminance,
         midtones_hue: adjustments.midtones_grading_hue,
         midtones_intensity: adjustments.midtones_grading_intensity,
+        midtones_luminance: adjustments.midtones_grading_luminance,
         highlights_hue: adjustments.highlights_grading_hue,
         highlights_intensity: adjustments.highlights_grading_intensity,
+        highlights_luminance: adjustments.highlights_grading_luminance,
     };
     if color_grading_adjustments.is_active() {
         for_each_mut(&mut pixels, |pixel| {
