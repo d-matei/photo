@@ -9,6 +9,9 @@ const resetButton = document.getElementById("resetButton");
 const fitButton = document.getElementById("fitButton");
 const beforeAfterButton = document.getElementById("beforeAfterButton");
 const exportButton = document.getElementById("exportButton");
+const savePresetButton = document.getElementById("savePresetButton");
+const loadPresetButton = document.getElementById("loadPresetButton");
+const presetInput = document.getElementById("presetInput");
 const maskStatus = document.getElementById("maskStatus");
 const maskPanel = document.getElementById("maskPanel");
 const maskPanelContent = document.getElementById("maskPanelContent");
@@ -61,6 +64,7 @@ const history = {
   redo: [],
   activeSliderSnapshot: null
 };
+const HISTORY_LIMIT = 30;
 let originalImageDataUrl = null;
 let renderedImageDataUrl = null;
 let renderTimer = null;
@@ -69,13 +73,24 @@ let activeRenderController = null;
 let backendImageLoaded = false;
 const maskPanelOpenSections = new Map();
 
+function deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function snapshotState() {
-  return { ...state };
+  return {
+    version: 1,
+    state: { ...state },
+    masks: deepClone(masks),
+    activeMaskId,
+    maskIdCounter,
+    activeMaskPanelMode,
+    activeMaskHslColorName: activeMaskHslColor.name
+  };
 }
 
 function statesAreEqual(first, second) {
-  const keys = new Set([...Object.keys(first), ...Object.keys(second)]);
-  return [...keys].every(key => first[key] === second[key]);
+  return JSON.stringify(first) === JSON.stringify(second);
 }
 
 function setControlValue(key, value) {
@@ -95,13 +110,75 @@ function setControlValue(key, value) {
 }
 
 function applyState(nextState) {
-  Object.entries(nextState).forEach(([key, value]) => setControlValue(key, value));
+  const restoredState = nextState.state ?? nextState;
+
+  Object.keys(state).forEach(key => {
+    delete state[key];
+  });
+  Object.assign(state, restoredState);
+
+  masks.splice(0, masks.length, ...deepClone(nextState.masks ?? []));
+  activeMaskId = nextState.activeMaskId ?? null;
+  maskIdCounter = nextState.maskIdCounter ?? nextAvailableMaskId();
+  activeMaskPanelMode = nextState.activeMaskPanelMode ?? activeMaskPanelMode;
+  activeMaskHslColor = hslColors.find(color => color.name === nextState.activeMaskHslColorName) ?? activeMaskHslColor;
+
+  Object.entries(state).forEach(([key, value]) => setControlValue(key, value));
+  renderColorGrading(document.querySelector("[data-grading-mode].is-active")?.dataset.gradingMode ?? "sliders");
+  renderHslMixer(activeMaskHslColor);
+
+  if (activeMaskId && masks.some(mask => mask.id === activeMaskId)) {
+    selectMask(activeMaskId);
+  } else if (masks.length > 0) {
+    activeMaskId = masks[0].id;
+    selectMask(activeMaskId);
+  } else {
+    activeMaskId = null;
+    maskPanel.hidden = true;
+    maskOverlayLayer.replaceChildren();
+    updateMaskToolButtons();
+    maskStatus.textContent = "No mask selected.";
+  }
+
   updateStatus();
+}
+
+function nextAvailableMaskId() {
+  const highest = masks.reduce((max, mask) => {
+    const match = /^mask-(\d+)$/.exec(mask.id);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return highest + 1;
 }
 
 function updateHistoryButtons() {
   undoButton.disabled = history.undo.length === 0;
   redoButton.disabled = history.redo.length === 0;
+}
+
+function undoLatestEdit() {
+  const entry = history.undo.pop();
+  if (!entry) {
+    return;
+  }
+
+  history.redo.push(entry);
+  applyState(entry.before);
+  updateHistoryButtons();
+}
+
+function redoLatestEdit() {
+  const entry = history.redo.pop();
+  if (!entry) {
+    return;
+  }
+
+  history.undo.push(entry);
+  if (history.undo.length > HISTORY_LIMIT) {
+    history.undo.shift();
+  }
+  applyState(entry.after);
+  updateHistoryButtons();
 }
 
 function recordHistory(before, after) {
@@ -110,6 +187,9 @@ function recordHistory(before, after) {
   }
 
   history.undo.push({ before, after });
+  if (history.undo.length > HISTORY_LIMIT) {
+    history.undo.shift();
+  }
   history.redo = [];
   updateHistoryButtons();
 }
@@ -295,6 +375,50 @@ async function exportRenderedPreview() {
   } finally {
     exportButton.disabled = false;
   }
+}
+
+function savePreset() {
+  const preset = {
+    app: "Lumiere",
+    kind: "edit-preset",
+    version: 1,
+    savedAt: new Date().toISOString(),
+    edits: snapshotState()
+  };
+  const blob = new Blob([JSON.stringify(preset, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "lumiere-preset.json";
+  link.click();
+  URL.revokeObjectURL(link.href);
+  statusText.textContent = "Preset saved.";
+}
+
+function loadPresetFile(file) {
+  const reader = new FileReader();
+  reader.onload = event => {
+    try {
+      const preset = JSON.parse(String(event.target.result ?? ""));
+      const edits = preset.edits ?? preset;
+      if (!edits.state || !Array.isArray(edits.masks)) {
+        throw new Error("This file does not look like a Lumiere preset.");
+      }
+
+      const before = snapshotState();
+      applyState(edits);
+      recordHistory(before, snapshotState());
+      statusText.textContent = "Preset loaded.";
+    } catch (error) {
+      statusText.textContent = `Could not load preset: ${error.message}`;
+    } finally {
+      presetInput.value = "";
+    }
+  };
+  reader.onerror = () => {
+    statusText.textContent = "Could not read the preset file.";
+    presetInput.value = "";
+  };
+  reader.readAsText(file);
 }
 
 function updateRangeFill(input) {
@@ -850,6 +974,7 @@ function maskDisplayType(type) {
 }
 
 function createMask(type) {
+  const before = snapshotState();
   const id = `mask-${maskIdCounter}`;
   const count = masks.filter(mask => mask.type === type).length + 1;
   maskIdCounter += 1;
@@ -883,6 +1008,7 @@ function createMask(type) {
   });
   masks.push(mask);
   selectMask(id);
+  recordHistory(before, snapshotState());
   scheduleBackendRender();
 }
 
@@ -928,6 +1054,7 @@ function selectMask(id) {
 }
 
 function deleteActiveMask() {
+  const before = snapshotState();
   const index = masks.findIndex(mask => mask.id === activeMaskId);
   if (index === -1) {
     return;
@@ -937,6 +1064,8 @@ function deleteActiveMask() {
   activeMaskId = masks[index - 1]?.id ?? masks[index]?.id ?? null;
   if (activeMaskId) {
     selectMask(activeMaskId);
+    recordHistory(before, snapshotState());
+    scheduleBackendRender();
     return;
   }
 
@@ -944,6 +1073,8 @@ function deleteActiveMask() {
   maskOverlayLayer.replaceChildren();
   updateMaskToolButtons();
   maskStatus.textContent = "No mask selected.";
+  recordHistory(before, snapshotState());
+  scheduleBackendRender();
 }
 
 function updateMaskToolButtons() {
@@ -1004,6 +1135,10 @@ function createMaskSlider(label, value, min, max, step, onInput, decimals = 0, c
   input.value = String(value);
   updateRangeFill(input);
 
+  input.addEventListener("pointerdown", () => {
+    history.activeSliderSnapshot = snapshotState();
+  });
+
   input.addEventListener("input", () => {
     const nextValue = Number(input.value);
     output.value = Number(nextValue).toFixed(decimals);
@@ -1013,11 +1148,19 @@ function createMaskSlider(label, value, min, max, step, onInput, decimals = 0, c
     scheduleBackendRender();
   });
 
+  input.addEventListener("change", () => {
+    const before = history.activeSliderSnapshot ?? snapshotState();
+    recordHistory(before, snapshotState());
+    history.activeSliderSnapshot = null;
+  });
+
   input.addEventListener("dblclick", () => {
+    const before = snapshotState();
     input.value = "0";
     output.value = Number(0).toFixed(decimals);
     onInput(0);
     updateRangeFill(input);
+    recordHistory(before, snapshotState());
     renderMaskOverlay();
     scheduleBackendRender();
   });
@@ -1038,9 +1181,11 @@ function createMaskToggle(label, checked, onChange) {
   input.type = "checkbox";
   input.checked = checked;
   input.addEventListener("change", () => {
+    const before = snapshotState();
     onChange(input.checked);
     renderMaskPanel();
     renderMaskOverlay();
+    recordHistory(before, snapshotState());
     scheduleBackendRender();
   });
 
@@ -1073,8 +1218,10 @@ function renderMaskPanel() {
   renameButton.addEventListener("click", () => {
     const nextName = window.prompt("Rename mask", mask.name);
     if (nextName?.trim()) {
+      const before = snapshotState();
       mask.name = nextName.trim();
       renderMaskPanel();
+      recordHistory(before, snapshotState());
     }
   });
 
@@ -1329,14 +1476,18 @@ function createMaskGradingWheel(mask, zone) {
   handle.addEventListener("dblclick", event => {
     event.preventDefault();
     event.stopPropagation();
+    const before = snapshotState();
     mask.adjustments.colorGrading[key].hue = 0;
     mask.adjustments.colorGrading[key].saturation = 0;
     updateMaskWheelHandle(wheel, mask.adjustments.colorGrading[key]);
+    recordHistory(before, snapshotState());
     scheduleBackendRender();
   });
 
+  let beforeWheelDrag = null;
   wheel.addEventListener("pointerdown", event => {
     event.preventDefault();
+    beforeWheelDrag = snapshotState();
     wheel.setPointerCapture(event.pointerId);
     updateMaskGradingFromWheel(wheel, mask.adjustments.colorGrading[key], event);
   });
@@ -1349,6 +1500,8 @@ function createMaskGradingWheel(mask, zone) {
     if (wheel.hasPointerCapture(event.pointerId)) {
       wheel.releasePointerCapture(event.pointerId);
     }
+    recordHistory(beforeWheelDrag ?? snapshotState(), snapshotState());
+    beforeWheelDrag = null;
     scheduleBackendRender();
   });
 
@@ -1431,6 +1584,14 @@ function resetControls() {
     input.closest("label").querySelector("output").value = "0";
     updateRangeFill(input);
   });
+
+  masks.splice(0, masks.length);
+  activeMaskId = null;
+  maskIdCounter = 1;
+  maskPanel.hidden = true;
+  maskOverlayLayer.replaceChildren();
+  updateMaskToolButtons();
+  maskStatus.textContent = "No mask selected.";
 
   recordHistory(before, snapshotState());
   updateStatus();
@@ -1800,10 +1961,12 @@ function pointerToRadialLocal(mask, event, rect) {
 function attachRadialMoveDrag(element, mask, onUpdate) {
   let startPointer = null;
   let startCenter = null;
+  let beforeDrag = null;
 
   element.addEventListener("pointerdown", event => {
     event.preventDefault();
     event.stopPropagation();
+    beforeDrag = snapshotState();
     const rect = maskOverlayLayer.getBoundingClientRect();
     startPointer = pointerToNormalizedPoint(event, rect);
     startCenter = {
@@ -1831,14 +1994,18 @@ function attachRadialMoveDrag(element, mask, onUpdate) {
     }
     startPointer = null;
     startCenter = null;
+    recordHistory(beforeDrag ?? snapshotState(), snapshotState());
+    beforeDrag = null;
     scheduleBackendRender();
   });
 }
 
 function attachRadialResizeDrag(element, mask, edge, onUpdate) {
+  let beforeDrag = null;
   element.addEventListener("pointerdown", event => {
     event.preventDefault();
     event.stopPropagation();
+    beforeDrag = snapshotState();
     element.setPointerCapture(event.pointerId);
   });
 
@@ -1861,14 +2028,18 @@ function attachRadialResizeDrag(element, mask, edge, onUpdate) {
     if (element.hasPointerCapture(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
+    recordHistory(beforeDrag ?? snapshotState(), snapshotState());
+    beforeDrag = null;
     scheduleBackendRender();
   });
 }
 
 function attachRadialRotateDrag(element, mask, onUpdate) {
+  let beforeDrag = null;
   element.addEventListener("pointerdown", event => {
     event.preventDefault();
     event.stopPropagation();
+    beforeDrag = snapshotState();
     element.setPointerCapture(event.pointerId);
   });
 
@@ -1888,6 +2059,8 @@ function attachRadialRotateDrag(element, mask, onUpdate) {
     if (element.hasPointerCapture(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
+    recordHistory(beforeDrag ?? snapshotState(), snapshotState());
+    beforeDrag = null;
     scheduleBackendRender();
   });
 }
@@ -1909,6 +2082,7 @@ function renderBrushMaskOverlay(mask) {
   maskOverlayLayer.append(preview);
 
   let isPainting = false;
+  let beforePaint = null;
   maskOverlayLayer.onpointermove = event => {
     const frameRect = maskOverlayLayer.getBoundingClientRect();
     preview.style.left = `${event.clientX - frameRect.left}px`;
@@ -1921,6 +2095,7 @@ function renderBrushMaskOverlay(mask) {
   };
   maskOverlayLayer.onpointerdown = event => {
     isPainting = true;
+    beforePaint = snapshotState();
     maskOverlayLayer.setPointerCapture(event.pointerId);
     addBrushPoint(mask, event, maskOverlayLayer.getBoundingClientRect());
     paintBrushCanvas(canvas, mask);
@@ -1930,6 +2105,8 @@ function renderBrushMaskOverlay(mask) {
     if (maskOverlayLayer.hasPointerCapture(event.pointerId)) {
       maskOverlayLayer.releasePointerCapture(event.pointerId);
     }
+    recordHistory(beforePaint ?? snapshotState(), snapshotState());
+    beforePaint = null;
     scheduleBackendRender();
   };
 }
@@ -2022,9 +2199,11 @@ function updateMaskPanelGeometryValues(mask) {
 }
 
 function attachMaskDrag(element, onDrag) {
+  let beforeDrag = null;
   element.addEventListener("pointerdown", event => {
     event.preventDefault();
     event.stopPropagation();
+    beforeDrag = snapshotState();
     element.setPointerCapture(event.pointerId);
   });
   element.addEventListener("pointermove", event => {
@@ -2037,6 +2216,8 @@ function attachMaskDrag(element, onDrag) {
     if (element.hasPointerCapture(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
+    recordHistory(beforeDrag ?? snapshotState(), snapshotState());
+    beforeDrag = null;
     scheduleBackendRender();
   });
 }
@@ -2060,25 +2241,11 @@ imageInput.addEventListener("change", event => {
 });
 
 undoButton.addEventListener("click", () => {
-  const entry = history.undo.pop();
-  if (!entry) {
-    return;
-  }
-
-  history.redo.push(entry);
-  applyState(entry.before);
-  updateHistoryButtons();
+  undoLatestEdit();
 });
 
 redoButton.addEventListener("click", () => {
-  const entry = history.redo.pop();
-  if (!entry) {
-    return;
-  }
-
-  history.undo.push(entry);
-  applyState(entry.after);
-  updateHistoryButtons();
+  redoLatestEdit();
 });
 
 resetButton.addEventListener("click", resetControls);
@@ -2108,6 +2275,28 @@ beforeAfterButton.addEventListener("touchstart", event => {
 beforeAfterButton.addEventListener("touchend", showRenderedPreview);
 
 exportButton.addEventListener("click", exportRenderedPreview);
+savePresetButton.addEventListener("click", savePreset);
+loadPresetButton.addEventListener("click", () => presetInput.click());
+presetInput.addEventListener("change", event => {
+  const [file] = event.target.files ?? [];
+  if (file) {
+    loadPresetFile(file);
+  }
+});
+
+document.addEventListener("keydown", event => {
+  const key = event.key.toLowerCase();
+  const isUndo = (event.ctrlKey || event.metaKey) && key === "z" && !event.shiftKey;
+  const isRedo = (event.ctrlKey || event.metaKey) && (key === "y" || (key === "z" && event.shiftKey));
+
+  if (isUndo) {
+    event.preventDefault();
+    undoLatestEdit();
+  } else if (isRedo) {
+    event.preventDefault();
+    redoLatestEdit();
+  }
+});
 
 document.querySelectorAll("[data-grading-mode]").forEach(button => {
   button.addEventListener("click", () => {
