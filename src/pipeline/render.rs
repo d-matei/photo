@@ -1,4 +1,6 @@
-use crate::pipeline::clarity::{apply_clarity_rgb, ClarityConfig};
+use crate::pipeline::clarity::{
+    apply_clarity_rgb, apply_clarity_rgb_with_analysis, ClarityAnalysis, ClarityConfig,
+};
 use crate::pipeline::color::RgbPixel;
 use crate::pipeline::color_balance::{adjust_color_balance_pixel, ColorBalanceAdjustments};
 use crate::pipeline::color_grading::{adjust_color_grading_pixel, ColorGradingAdjustments};
@@ -6,9 +8,12 @@ use crate::pipeline::color_mixer::{
     adjust_color_mixer_pixel, ColorMixerAdjustments, COLOR_MIXER_ZONE_COUNT,
 };
 use crate::pipeline::contrast::{adjust_contrast_value, ContrastConfig};
-use crate::pipeline::dehaze::{apply_dehaze_rgb, DehazeConfig};
+use crate::pipeline::dehaze::{
+    apply_dehaze_rgb, apply_dehaze_rgb_with_analysis, DehazeAnalysis, DehazeConfig,
+};
 use crate::pipeline::exposure::adjust_exposure_value;
 use crate::pipeline::masking::{mask_strength, MaskDefinition};
+use crate::pipeline::parallel::{for_each_enumerated_mut, for_each_mut, map_collect};
 use crate::pipeline::saturation::adjust_saturation_pixel;
 use crate::pipeline::tonal_ranges::{adjust_tonal_ranges_pixel, TonalRangeAdjustments};
 
@@ -132,18 +137,88 @@ pub struct RenderedImage {
     pub height: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderAnalysisCache {
+    pub dehaze: DehazeAnalysis,
+    pub clarity_positive: ClarityAnalysis,
+    pub clarity_negative: ClarityAnalysis,
+}
+
+impl RenderAnalysisCache {
+    pub fn build(original_pixels: &[RgbPixel], width: usize, height: usize) -> Self {
+        let defaults = AdjustmentValues::default();
+        Self {
+            dehaze: DehazeAnalysis::build(
+                original_pixels,
+                width,
+                height,
+                1.0,
+                DehazeConfig {
+                    block_size: defaults.dehaze_block_size,
+                    contrast_boost: DehazeConfig::default().contrast_boost,
+                    negative_contrast_reference_offset: defaults.dehaze_negative_reference_offset,
+                    positive_saturation_boost: defaults.dehaze_positive_saturation_boost,
+                    positive_uses_global_reference: DehazeConfig::default()
+                        .positive_uses_global_reference,
+                },
+            ),
+            clarity_positive: ClarityAnalysis::build(
+                original_pixels,
+                width,
+                height,
+                1.0,
+                ClarityConfig {
+                    block_size: defaults.clarity_block_size,
+                    contrast_boost: ClarityConfig::default().contrast_boost,
+                    negative_contrast_reference_offset: defaults.clarity_negative_reference_offset,
+                    positive_saturation_compensation: defaults
+                        .clarity_positive_saturation_compensation,
+                    negative_saturation_compensation: defaults
+                        .clarity_negative_saturation_compensation,
+                },
+            ),
+            clarity_negative: ClarityAnalysis::build(
+                original_pixels,
+                width,
+                height,
+                -1.0,
+                ClarityConfig {
+                    block_size: defaults.clarity_block_size,
+                    contrast_boost: ClarityConfig::default().contrast_boost,
+                    negative_contrast_reference_offset: defaults.clarity_negative_reference_offset,
+                    positive_saturation_compensation: defaults
+                        .clarity_positive_saturation_compensation,
+                    negative_saturation_compensation: defaults
+                        .clarity_negative_saturation_compensation,
+                },
+            ),
+        }
+    }
+}
+
 pub fn render_rgb(
     original_pixels: &[RgbPixel],
     width: usize,
     height: usize,
     params: &RenderParams,
 ) -> RenderedImage {
-    let mut pixels = apply_adjustments(
+    render_rgb_with_cache(original_pixels, width, height, params, None)
+}
+
+pub fn render_rgb_with_cache(
+    original_pixels: &[RgbPixel],
+    width: usize,
+    height: usize,
+    params: &RenderParams,
+    analysis_cache: Option<&RenderAnalysisCache>,
+) -> RenderedImage {
+    let mut pixels = apply_adjustments_with_cache(
         original_pixels,
         original_pixels,
         width,
         height,
         &params.global,
+        analysis_cache,
     );
 
     for mask in &params.masks {
@@ -151,10 +226,16 @@ pub fn render_rgb(
             continue;
         }
 
-        let masked_pixels =
-            apply_adjustments(&pixels, original_pixels, width, height, &mask.adjustments);
+        let masked_pixels = apply_adjustments_with_cache(
+            &pixels,
+            original_pixels,
+            width,
+            height,
+            &mask.adjustments,
+            analysis_cache,
+        );
 
-        for (index, pixel) in pixels.iter_mut().enumerate() {
+        for_each_enumerated_mut(&mut pixels, |index, pixel| {
             let x = index % width;
             let y = index / width;
             let mut strength = mask_strength(&mask.shape, x, y, width, height);
@@ -164,7 +245,7 @@ pub fn render_rgb(
             strength *= (mask.density / 100.0).clamp(0.0, 1.0);
 
             *pixel = blend_pixel(*pixel, masked_pixels[index], strength);
-        }
+        });
     }
 
     RenderedImage {
@@ -181,10 +262,28 @@ pub fn apply_adjustments(
     height: usize,
     adjustments: &AdjustmentValues,
 ) -> Vec<RgbPixel> {
+    apply_adjustments_with_cache(
+        input_pixels,
+        original_pixels,
+        width,
+        height,
+        adjustments,
+        None,
+    )
+}
+
+pub fn apply_adjustments_with_cache(
+    input_pixels: &[RgbPixel],
+    original_pixels: &[RgbPixel],
+    width: usize,
+    height: usize,
+    adjustments: &AdjustmentValues,
+    analysis_cache: Option<&RenderAnalysisCache>,
+) -> Vec<RgbPixel> {
     let mut pixels = input_pixels.to_vec();
 
     if adjustments.exposure != 0.0 {
-        pixels.iter_mut().for_each(|pixel| {
+        for_each_mut(&mut pixels, |pixel| {
             pixel.r = adjust_exposure_value(pixel.r, adjustments.exposure);
             pixel.g = adjust_exposure_value(pixel.g, adjustments.exposure);
             pixel.b = adjust_exposure_value(pixel.b, adjustments.exposure);
@@ -198,7 +297,7 @@ pub fn apply_adjustments(
         blacks: adjustments.blacks,
     };
     if tonal_adjustments != TonalRangeAdjustments::default() {
-        pixels.iter_mut().for_each(|pixel| {
+        for_each_mut(&mut pixels, |pixel| {
             *pixel = adjust_tonal_ranges_pixel(*pixel, tonal_adjustments);
         });
     }
@@ -208,7 +307,7 @@ pub fn apply_adjustments(
         tint: adjustments.tint,
     };
     if color_balance_adjustments.is_active() {
-        pixels.iter_mut().for_each(|pixel| {
+        for_each_mut(&mut pixels, |pixel| {
             *pixel = adjust_color_balance_pixel(*pixel, color_balance_adjustments);
         });
     }
@@ -225,7 +324,7 @@ pub fn apply_adjustments(
         highlights_intensity: adjustments.highlights_grading_intensity,
     };
     if color_grading_adjustments.is_active() {
-        pixels.iter_mut().for_each(|pixel| {
+        for_each_mut(&mut pixels, |pixel| {
             *pixel = adjust_color_grading_pixel(*pixel, color_grading_adjustments);
         });
     }
@@ -236,16 +335,15 @@ pub fn apply_adjustments(
         luminance: adjustments.mixer_luminance,
     };
     if color_mixer_adjustments.is_active() {
-        pixels.iter_mut().for_each(|pixel| {
+        for_each_mut(&mut pixels, |pixel| {
             *pixel = adjust_color_mixer_pixel(*pixel, color_mixer_adjustments);
         });
     }
 
     if adjustments.saturation != 0.0 {
-        pixels = pixels
-            .into_iter()
-            .map(|pixel| adjust_saturation_pixel(pixel, adjustments.saturation))
-            .collect();
+        pixels = map_collect(&pixels, |pixel| {
+            adjust_saturation_pixel(*pixel, adjustments.saturation)
+        });
     }
 
     let contrast_config = ContrastConfig {
@@ -255,7 +353,7 @@ pub fn apply_adjustments(
     };
 
     if adjustments.contrast != 0.0 {
-        pixels.iter_mut().for_each(|pixel| {
+        for_each_mut(&mut pixels, |pixel| {
             pixel.r = adjust_contrast_value(pixel.r, adjustments.contrast, contrast_config);
             pixel.g = adjust_contrast_value(pixel.g, adjustments.contrast, contrast_config);
             pixel.b = adjust_contrast_value(pixel.b, adjustments.contrast, contrast_config);
@@ -263,42 +361,97 @@ pub fn apply_adjustments(
     }
 
     if adjustments.dehaze != 0.0 {
-        pixels = apply_dehaze_rgb(
-            &pixels,
-            original_pixels,
-            width,
-            height,
-            adjustments.dehaze,
-            DehazeConfig {
-                block_size: adjustments.dehaze_block_size,
-                contrast_boost: DehazeConfig::default().contrast_boost,
-                negative_contrast_reference_offset: adjustments.dehaze_negative_reference_offset,
-                positive_saturation_boost: adjustments.dehaze_positive_saturation_boost,
-                positive_uses_global_reference: DehazeConfig::default()
-                    .positive_uses_global_reference,
-            },
-            contrast_config,
-        );
+        let dehaze_config = DehazeConfig {
+            block_size: adjustments.dehaze_block_size,
+            contrast_boost: DehazeConfig::default().contrast_boost,
+            negative_contrast_reference_offset: adjustments.dehaze_negative_reference_offset,
+            positive_saturation_boost: adjustments.dehaze_positive_saturation_boost,
+            positive_uses_global_reference: DehazeConfig::default().positive_uses_global_reference,
+        };
+        pixels = if let Some(cache) = analysis_cache {
+            if !cache
+                .dehaze
+                .matches(width, height, adjustments.dehaze, dehaze_config)
+            {
+                apply_dehaze_rgb(
+                    &pixels,
+                    original_pixels,
+                    width,
+                    height,
+                    adjustments.dehaze,
+                    dehaze_config,
+                    contrast_config,
+                )
+            } else {
+                apply_dehaze_rgb_with_analysis(
+                    &pixels,
+                    width,
+                    height,
+                    adjustments.dehaze,
+                    dehaze_config,
+                    contrast_config,
+                    &cache.dehaze,
+                )
+            }
+        } else {
+            apply_dehaze_rgb(
+                &pixels,
+                original_pixels,
+                width,
+                height,
+                adjustments.dehaze,
+                dehaze_config,
+                contrast_config,
+            )
+        };
     }
 
     if adjustments.clarity != 0.0 {
-        pixels = apply_clarity_rgb(
-            &pixels,
-            original_pixels,
-            width,
-            height,
-            adjustments.clarity,
-            ClarityConfig {
-                block_size: adjustments.clarity_block_size,
-                contrast_boost: ClarityConfig::default().contrast_boost,
-                negative_contrast_reference_offset: adjustments.clarity_negative_reference_offset,
-                positive_saturation_compensation: adjustments
-                    .clarity_positive_saturation_compensation,
-                negative_saturation_compensation: adjustments
-                    .clarity_negative_saturation_compensation,
-            },
-            contrast_config,
-        );
+        let clarity_config = ClarityConfig {
+            block_size: adjustments.clarity_block_size,
+            contrast_boost: ClarityConfig::default().contrast_boost,
+            negative_contrast_reference_offset: adjustments.clarity_negative_reference_offset,
+            positive_saturation_compensation: adjustments.clarity_positive_saturation_compensation,
+            negative_saturation_compensation: adjustments.clarity_negative_saturation_compensation,
+        };
+        pixels = if let Some(cache) = analysis_cache {
+            let analysis = if adjustments.clarity > 0.0 {
+                &cache.clarity_positive
+            } else {
+                &cache.clarity_negative
+            };
+            if !analysis.matches(width, height, adjustments.clarity, clarity_config) {
+                apply_clarity_rgb(
+                    &pixels,
+                    original_pixels,
+                    width,
+                    height,
+                    adjustments.clarity,
+                    clarity_config,
+                    contrast_config,
+                )
+            } else {
+                apply_clarity_rgb_with_analysis(
+                    &pixels,
+                    width,
+                    height,
+                    adjustments.clarity,
+                    clarity_config,
+                    contrast_config,
+                    analysis,
+                )
+            }
+        } else {
+            apply_clarity_rgb(
+                &pixels,
+                original_pixels,
+                width,
+                height,
+                adjustments.clarity,
+                clarity_config,
+                contrast_config,
+            )
+        };
     }
 
     pixels
@@ -320,7 +473,9 @@ fn blend_channel(base: u8, adjusted: u8, strength: f32) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_rgb, AdjustmentValues, RenderParams};
+    use super::{
+        render_rgb, render_rgb_with_cache, AdjustmentValues, RenderAnalysisCache, RenderParams,
+    };
     use crate::pipeline::color::RgbPixel;
     use crate::pipeline::masking::{LinearGradientMask, MaskDefinition, MaskShape};
 
@@ -358,5 +513,42 @@ mod tests {
         assert_eq!(rendered.pixels[0], RgbPixel::new(100, 100, 100));
         assert_eq!(rendered.pixels[1], RgbPixel::new(115, 115, 115));
         assert_eq!(rendered.pixels[2], RgbPixel::new(130, 130, 130));
+    }
+
+    #[test]
+    fn cached_analysis_matches_uncached_dehaze_and_clarity_output() {
+        let original = vec![
+            RgbPixel::new(80, 78, 75),
+            RgbPixel::new(84, 82, 80),
+            RgbPixel::new(180, 176, 170),
+            RgbPixel::new(185, 181, 175),
+            RgbPixel::new(70, 74, 78),
+            RgbPixel::new(76, 80, 84),
+            RgbPixel::new(190, 188, 184),
+            RgbPixel::new(196, 194, 190),
+            RgbPixel::new(60, 62, 64),
+            RgbPixel::new(66, 68, 70),
+            RgbPixel::new(205, 202, 198),
+            RgbPixel::new(212, 208, 204),
+            RgbPixel::new(92, 90, 88),
+            RgbPixel::new(98, 96, 94),
+            RgbPixel::new(220, 216, 210),
+            RgbPixel::new(226, 222, 216),
+        ];
+        let mut adjustments = AdjustmentValues::default();
+        adjustments.dehaze = 0.55;
+        adjustments.clarity = -0.35;
+        adjustments.contrast = 0.18;
+        adjustments.saturation = 0.12;
+        let params = RenderParams {
+            global: adjustments,
+            masks: Vec::new(),
+        };
+        let cache = RenderAnalysisCache::build(&original, 4, 4);
+
+        let uncached = render_rgb(&original, 4, 4, &params);
+        let cached = render_rgb_with_cache(&original, 4, 4, &params, Some(&cache));
+
+        assert_eq!(cached, uncached);
     }
 }

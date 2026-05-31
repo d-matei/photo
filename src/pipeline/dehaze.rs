@@ -46,6 +46,7 @@ This keeps the dehaze effect local and adaptive instead of adding the same amoun
 
 use crate::pipeline::color::RgbPixel;
 use crate::pipeline::contrast::{adjust_contrast_value, ContrastConfig};
+use crate::pipeline::parallel::map_enumerated_collect;
 use crate::pipeline::saturation::adjust_saturation_pixel;
 
 const LOCAL_BOOST_RESPONSE_EXPONENT: f32 = 0.7;
@@ -112,45 +113,108 @@ pub fn apply_dehaze_rgb(
         return pixels.to_vec();
     }
 
+    let analysis = DehazeAnalysis::build(analysis_pixels, width, height, amount, config);
+
+    apply_dehaze_rgb_with_analysis(
+        pixels,
+        width,
+        height,
+        amount,
+        config,
+        contrast_config,
+        &analysis,
+    )
+}
+
+pub fn apply_dehaze_rgb_with_analysis(
+    pixels: &[RgbPixel],
+    width: usize,
+    height: usize,
+    amount: f32,
+    config: DehazeConfig,
+    contrast_config: ContrastConfig,
+    analysis: &DehazeAnalysis,
+) -> Vec<RgbPixel> {
+    if amount == 0.0 || pixels.is_empty() || width == 0 || height == 0 {
+        return pixels.to_vec();
+    }
+
     let width = width.min(pixels.len());
     let height = height.min(pixels.len() / width.max(1));
-    let analysis_width = width.min(analysis_pixels.len());
-    let analysis_height = height.min(analysis_pixels.len() / analysis_width.max(1));
-    let effective_block_size = dehaze_block_size(amount, config.block_size);
-    let include_nearby_zones = true;
-    let global_reference = if config.positive_uses_global_reference {
-        Some(global_mean_luminance(
-            analysis_pixels,
-            analysis_width,
-            analysis_height,
-        ))
-    } else {
-        None
-    };
-    let analysis_map = build_local_analysis_map(
-        analysis_pixels,
-        analysis_width,
-        analysis_height,
-        effective_block_size,
-        include_nearby_zones,
-        global_reference,
-    );
+    if !analysis.matches(width, height, amount, config) {
+        return pixels.to_vec();
+    }
 
-    pixels
-        .iter()
-        .zip(analysis_map.iter())
-        .map(|(&pixel, analysis)| {
-            let local_strength = signed_response(amount) * local_boost_response(analysis.boost);
-            apply_local_dehaze(
-                pixel,
-                local_strength,
-                analysis.boost,
-                analysis.reference,
-                config,
-                contrast_config,
-            )
-        })
-        .collect()
+    let analysis_map = &analysis.map[..width * height];
+
+    map_enumerated_collect(&pixels[..width * height], |index, pixel| {
+        let analysis = &analysis_map[index];
+        let local_strength = signed_response(amount) * local_boost_response(analysis.boost);
+        apply_local_dehaze(
+            *pixel,
+            local_strength,
+            analysis.boost,
+            analysis.reference,
+            config,
+            contrast_config,
+        )
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DehazeAnalysis {
+    map: Vec<LocalAnalysis>,
+    width: usize,
+    height: usize,
+    block_size: usize,
+    include_nearby_zones: bool,
+    global_reference_enabled: bool,
+}
+
+impl DehazeAnalysis {
+    pub fn build(
+        analysis_pixels: &[RgbPixel],
+        width: usize,
+        height: usize,
+        amount: f32,
+        config: DehazeConfig,
+    ) -> Self {
+        let width = width.min(analysis_pixels.len());
+        let height = height.min(analysis_pixels.len() / width.max(1));
+        let block_size = dehaze_block_size(amount, config.block_size);
+        let include_nearby_zones = true;
+        let global_reference = if config.positive_uses_global_reference {
+            Some(global_mean_luminance(analysis_pixels, width, height))
+        } else {
+            None
+        };
+        let map = build_local_analysis_map(
+            analysis_pixels,
+            width,
+            height,
+            block_size,
+            include_nearby_zones,
+            global_reference,
+        );
+
+        Self {
+            map,
+            width,
+            height,
+            block_size,
+            include_nearby_zones,
+            global_reference_enabled: config.positive_uses_global_reference,
+        }
+    }
+
+    pub fn matches(&self, width: usize, height: usize, amount: f32, config: DehazeConfig) -> bool {
+        self.width == width
+            && self.height == height
+            && self.block_size == dehaze_block_size(amount, config.block_size)
+            && self.include_nearby_zones
+            && self.global_reference_enabled == config.positive_uses_global_reference
+            && self.map.len() == width.saturating_mul(height)
+    }
 }
 
 fn apply_local_dehaze(
@@ -376,7 +440,7 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct LocalAnalysis {
     boost: f32,
     reference: f32,

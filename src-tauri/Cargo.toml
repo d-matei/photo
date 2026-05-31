@@ -1,0 +1,17 @@
+[package]
+name = "raw-photo-editor-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop wrapper for Lumiere"
+authors = ["Matei Dumitru"]
+license = "UNLICENSED"
+
+[package.metadata]
+app = "lumiere"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+raw_photo_editor = { package = "raw-photo-editor", path = ".." }
+tauri = { version = "2", features = [] }

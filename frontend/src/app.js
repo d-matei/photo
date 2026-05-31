@@ -65,6 +65,8 @@ let originalImageDataUrl = null;
 let renderedImageDataUrl = null;
 let renderTimer = null;
 let renderRequestId = 0;
+let activeRenderController = null;
+let backendImageLoaded = false;
 const maskPanelOpenSections = new Map();
 
 function snapshotState() {
@@ -129,7 +131,7 @@ function backendRenderingAvailable() {
 }
 
 function scheduleBackendRender() {
-  if (!originalImageDataUrl || !backendRenderingAvailable()) {
+  if (!originalImageDataUrl || !backendRenderingAvailable() || !backendImageLoaded) {
     return;
   }
 
@@ -138,12 +140,16 @@ function scheduleBackendRender() {
 }
 
 async function requestBackendRender() {
-  if (!originalImageDataUrl) {
+  if (!originalImageDataUrl || !backendImageLoaded) {
     return;
   }
 
   const requestId = ++renderRequestId;
-  statusText.textContent = "Rendering with Rust backend...";
+  if (activeRenderController) {
+    activeRenderController.abort();
+  }
+  activeRenderController = new AbortController();
+  statusText.textContent = "Updating preview...";
 
   try {
     const response = await fetch("/api/render", {
@@ -151,19 +157,24 @@ async function requestBackendRender() {
       headers: {
         "Content-Type": "application/json"
       },
+      signal: activeRenderController.signal,
       body: JSON.stringify({
-        image_data_url: originalImageDataUrl,
+        request_id: requestId,
         params: buildBackendRenderRequest()
       })
     });
 
     if (!response.ok) {
       const details = await response.json().catch(() => ({}));
-      throw new Error(details.error || `Render failed with HTTP ${response.status}`);
+      throw new Error(details.error || `Preview failed with HTTP ${response.status}`);
     }
 
     const result = await response.json();
     if (requestId !== renderRequestId) {
+      return;
+    }
+
+    if (result.request_id !== requestId) {
       return;
     }
 
@@ -173,9 +184,49 @@ async function requestBackendRender() {
     }
     updateRenderedStatus();
   } catch (error) {
-    if (requestId === renderRequestId) {
-      statusText.textContent = `Rust render failed: ${error.message}`;
+    if (error.name === "AbortError") {
+      return;
     }
+    if (requestId === renderRequestId) {
+      statusText.textContent = `Preview update failed: ${error.message}`;
+    }
+  } finally {
+    if (requestId === renderRequestId) {
+      activeRenderController = null;
+    }
+  }
+}
+
+async function uploadImageToBackend(fileName) {
+  if (!originalImageDataUrl || !backendRenderingAvailable()) {
+    return;
+  }
+
+  backendImageLoaded = false;
+  statusText.textContent = "Loading photo...";
+
+  try {
+    const response = await fetch("/api/load-image", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        image_data_url: originalImageDataUrl
+      })
+    });
+
+    if (!response.ok) {
+      const details = await response.json().catch(() => ({}));
+      throw new Error(details.error || `Image load failed with HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    backendImageLoaded = true;
+    statusText.textContent = "Preparing preview...";
+    scheduleBackendRender();
+  } catch (error) {
+    statusText.textContent = `Could not load photo: ${error.message}`;
   }
 }
 
@@ -188,7 +239,7 @@ function updateRenderedStatus() {
   const maskText = maskCount === 0
     ? "no active masks"
     : `${maskCount} active mask${maskCount === 1 ? "" : "s"}`;
-  statusText.textContent = `${adjustmentText}, ${maskText}. Rust preview is up to date.`;
+  statusText.textContent = `${adjustmentText}, ${maskText}.`;
 }
 
 function showOriginalPreview() {
@@ -209,15 +260,41 @@ function showRenderedPreview() {
   }
 }
 
-function exportRenderedPreview() {
-  if (!renderedImageDataUrl) {
+async function exportRenderedPreview() {
+  if (!backendImageLoaded) {
     return;
   }
 
-  const link = document.createElement("a");
-  link.href = renderedImageDataUrl;
-  link.download = "raw-photo-editor-render.png";
-  link.click();
+  exportButton.disabled = true;
+  statusText.textContent = "Exporting full-resolution photo...";
+
+  try {
+    const response = await fetch("/api/export", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        params: buildBackendRenderRequest()
+      })
+    });
+
+    if (!response.ok) {
+      const details = await response.json().catch(() => ({}));
+      throw new Error(details.error || `Export failed with HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    const link = document.createElement("a");
+    link.href = result.image_data_url;
+    link.download = `lumiere-full-${result.width}x${result.height}.png`;
+    link.click();
+    statusText.textContent = "Export complete.";
+  } catch (error) {
+    statusText.textContent = `Export failed: ${error.message}`;
+  } finally {
+    exportButton.disabled = false;
+  }
 }
 
 function updateRangeFill(input) {
@@ -1031,7 +1108,7 @@ function renderMaskPanel() {
 }
 
 function createMaskBaseControls(mask) {
-  return [
+  const controls = [
     createMaskToggle("Visible", mask.visible, value => {
       mask.visible = value;
     }),
@@ -1041,14 +1118,21 @@ function createMaskBaseControls(mask) {
     createMaskToggle("Invert", mask.inverted, value => {
       mask.inverted = value;
       renderMaskOverlay();
-    }),
-    createMaskSlider("Feather", mask.feather, 0, 100, 1, value => {
-      mask.feather = value;
-    }),
-    createMaskSlider("Density", mask.density, 0, 100, 1, value => {
-      mask.density = value;
     })
   ];
+
+  if (mask.type !== "brush") {
+    controls.push(
+      createMaskSlider("Feather", mask.feather, 0, 100, 1, value => {
+        mask.feather = value;
+      }),
+      createMaskSlider("Density", mask.density, 0, 100, 1, value => {
+        mask.density = value;
+      })
+    );
+  }
+
+  return controls;
 }
 
 function createMaskTypeSections(mask) {
@@ -1363,6 +1447,7 @@ function loadPreview(file) {
   reader.onload = event => {
     originalImageDataUrl = event.target.result;
     renderedImageDataUrl = originalImageDataUrl;
+    backendImageLoaded = false;
 
     previewImage.onload = () => {
       previewImage.hidden = false;
@@ -1372,17 +1457,17 @@ function loadPreview(file) {
       fitButton.classList.add("is-active");
       exportButton.disabled = false;
       statusText.textContent = backendRenderingAvailable()
-        ? `${file.name} loaded. Rendering Rust preview...`
-        : `${file.name} loaded. Use cargo run --release -- serve for Rust rendering.`;
+        ? "Photo loaded. Preparing preview..."
+        : "Photo loaded. Start the app server to edit.";
       previewImage.onload = null;
-      scheduleBackendRender();
+      uploadImageToBackend(file.name);
     };
 
     previewImage.onerror = () => {
       previewImage.hidden = true;
       emptyState.hidden = false;
       exportButton.disabled = true;
-      statusText.textContent = `The browser could not display ${file.name}. Try another JPG or PNG image.`;
+      statusText.textContent = "This photo could not be displayed. Try another JPG or PNG image.";
     };
 
     previewImage.src = originalImageDataUrl;
@@ -1393,13 +1478,13 @@ function loadPreview(file) {
     previewImage.hidden = false;
     emptyState.hidden = false;
     exportButton.disabled = true;
-    statusText.textContent = `Could not read ${file.name}.`;
+    statusText.textContent = "Could not read the selected photo.";
   };
 
   previewImage.removeAttribute("src");
   previewImage.hidden = true;
   emptyState.hidden = false;
-  statusText.textContent = `Loading ${file.name} (${file.type || "unknown type"})...`;
+  statusText.textContent = "Loading photo...";
   reader.readAsDataURL(file);
 }
 
@@ -1409,7 +1494,12 @@ function renderMaskOverlay() {
   maskOverlayLayer.onpointerdown = null;
   maskOverlayLayer.onpointerup = null;
   const mask = activeMask();
-  if (!mask || !mask.visible || !mask.showOverlay || previewImage.hidden) {
+  if (!mask || !mask.visible || previewImage.hidden) {
+    imageStage.classList.remove("is-brush-editing");
+    return;
+  }
+
+  if (!mask.showOverlay && mask.type !== "brush") {
     imageStage.classList.remove("is-brush-editing");
     return;
   }
@@ -1868,7 +1958,7 @@ function paintBrushCanvas(canvas, mask) {
     const radius = Math.max(1, stroke.size / 2);
     const innerRadius = Math.max(0, Math.min(radius - 0.01, radius * (1 - stroke.feather / 100)));
     const gradient = context.createRadialGradient(x, y, innerRadius, x, y, radius);
-    const alpha = (mask.density / 100) * (stroke.flow / 100) * 0.55;
+    const alpha = mask.showOverlay ? (mask.density / 100) * (stroke.flow / 100) * 0.55 : 0;
     gradient.addColorStop(0, stroke.eraser ? "rgba(0, 0, 0, 1)" : `rgba(255, 0, 0, ${alpha})`);
     gradient.addColorStop(1, "rgba(255, 0, 0, 0)");
     context.globalCompositeOperation = stroke.eraser ? "destination-out" : "source-over";

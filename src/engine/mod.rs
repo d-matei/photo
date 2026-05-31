@@ -23,7 +23,7 @@ impl EditorSession {
 
     pub fn describe(&self) -> String {
         format!(
-            "RAW Photo Editor session ready. Active adjustments: {}",
+            "Lumiere session ready. Active adjustments: {}",
             self.params.active_adjustment_count()
         )
     }

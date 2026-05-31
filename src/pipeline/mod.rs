@@ -8,6 +8,7 @@ pub mod contrast;
 pub mod dehaze;
 pub mod exposure;
 pub mod masking;
+pub mod parallel;
 pub mod render;
 pub mod saturation;
 pub mod tonal_ranges;

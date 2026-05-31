@@ -1,4 +1,4 @@
-# RAW Photo Editor
+# Lumiere
 
 Backend-first foundation for a Lightroom-like photo editor.
 
@@ -86,6 +86,28 @@ Then open:
 
 ```text
 http://127.0.0.1:7878
+```
+
+Run the app-style window:
+
+```powershell
+cargo run --release -- app
+```
+
+On Windows with Chrome installed, this opens the editor in a standalone app window without browser tabs or an address bar. You can also double-click `RawPhotoEditor-App.bat`.
+
+Run the Tauri desktop wrapper:
+
+```powershell
+cd src-tauri
+cargo run
+```
+
+Build the Tauri desktop app:
+
+```powershell
+cd src-tauri
+cargo tauri build
 ```
 
 Run the native Rust algorithm tester:

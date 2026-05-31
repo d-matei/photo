@@ -1,26 +1,43 @@
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
-use raw_photo_editor::pipeline::color::RgbPixel;
-use raw_photo_editor::pipeline::color_mixer::COLOR_MIXER_ZONE_COUNT;
-use raw_photo_editor::pipeline::masking::{
+use crate::pipeline::color::RgbPixel;
+use crate::pipeline::color_mixer::COLOR_MIXER_ZONE_COUNT;
+use crate::pipeline::masking::{
     BrushMask, BrushStroke, LinearGradientMask, MaskDefinition, MaskShape, RadialGradientMask,
 };
-use raw_photo_editor::pipeline::render::{render_rgb, AdjustmentValues, RenderParams};
+use crate::pipeline::render::{
+    render_rgb_with_cache, AdjustmentValues, RenderAnalysisCache, RenderParams,
+};
+use image::imageops::FilterType;
+use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb, RgbImage};
 use serde::Deserialize;
 
 const ADDRESS: &str = "127.0.0.1:7878";
+const PREVIEW_LONG_EDGE: u32 = 1800;
 
 pub fn run() -> std::io::Result<()> {
+    run_server(false)
+}
+
+pub fn run_app_window() -> std::io::Result<()> {
+    run_server(true)
+}
+
+fn run_server(open_app_window: bool) -> std::io::Result<()> {
     let listener = TcpListener::bind(ADDRESS)?;
+    let mut state = ServerState::default();
     println!("Frontend + Rust backend running at http://{ADDRESS}");
     println!("Press Ctrl+C here when you want to stop the app.");
+    if open_app_window {
+        open_chrome_app_window();
+    }
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => handle_connection(stream),
+            Ok(stream) => handle_connection(stream, &mut state),
             Err(error) => eprintln!("Connection failed: {error}"),
         }
     }
@@ -28,7 +45,28 @@ pub fn run() -> std::io::Result<()> {
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream) {
+fn open_chrome_app_window() {
+    let url = format!("http://{ADDRESS}");
+    let chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ];
+
+    if let Some(path) = chrome_paths.iter().find(|path| Path::new(path).exists()) {
+        match Command::new(path)
+            .arg(format!("--app={url}"))
+            .arg("--new-window")
+            .spawn()
+        {
+            Ok(_) => println!("Opened app window."),
+            Err(error) => println!("Could not open app window automatically: {error}"),
+        }
+    } else {
+        println!("Chrome was not found. Open {url} manually.");
+    }
+}
+
+fn handle_connection(mut stream: TcpStream, state: &mut ServerState) {
     let request = match read_http_request(&mut stream) {
         Ok(request) => request,
         Err(error) => {
@@ -37,8 +75,12 @@ fn handle_connection(mut stream: TcpStream) {
         }
     };
 
-    let response = if request.method == "POST" && request.path == "/api/render" {
-        render_endpoint(&request.body)
+    let response = if request.method == "POST" && request.path == "/api/load-image" {
+        load_image_endpoint(&request.body, state)
+    } else if request.method == "POST" && request.path == "/api/render" {
+        render_endpoint(&request.body, state)
+    } else if request.method == "POST" && request.path == "/api/export" {
+        export_endpoint(&request.body, state)
     } else if request.method == "GET" {
         static_endpoint(&request.path)
     } else {
@@ -65,25 +107,82 @@ fn handle_connection(mut stream: TcpStream) {
     }
 }
 
-fn render_endpoint(body: &[u8]) -> Result<HttpResponse, ServerError> {
-    let request: RenderRequest = serde_json::from_slice(body)
-        .map_err(|error| ServerError::new(400, format!("Invalid render JSON: {error}")))?;
+fn load_image_endpoint(body: &[u8], state: &mut ServerState) -> Result<HttpResponse, ServerError> {
+    let request: LoadImageRequest = serde_json::from_slice(body)
+        .map_err(|error| ServerError::new(400, format!("Invalid image JSON: {error}")))?;
     let image_bytes = decode_data_url(&request.image_data_url)?;
-    let image = image::load_from_memory(&image_bytes)
+    let full_image = image::load_from_memory(&image_bytes)
         .map_err(|error| ServerError::new(400, format!("Could not decode image: {error}")))?
         .to_rgb8();
 
+    let (source_width, source_height) = full_image.dimensions();
+    let full_pixels = full_image
+        .pixels()
+        .map(|pixel| RgbPixel::new(pixel[0], pixel[1], pixel[2]))
+        .collect::<Vec<_>>();
+    let image = resize_for_preview(&full_image, PREVIEW_LONG_EDGE);
     let (width, height) = image.dimensions();
     let pixels = image
         .pixels()
         .map(|pixel| RgbPixel::new(pixel[0], pixel[1], pixel[2]))
         .collect::<Vec<_>>();
-    let params = request.params.into_render_params();
-    let rendered = render_rgb(&pixels, width as usize, height as usize, &params);
-    let output = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_fn(width, height, |x, y| {
-        let pixel = rendered.pixels[y as usize * rendered.width + x as usize];
-        Rgb([pixel.r, pixel.g, pixel.b])
+    state.image = Some(StoredImage {
+        analysis_cache: RenderAnalysisCache::build(&pixels, width as usize, height as usize),
+        pixels,
+        width: width as usize,
+        height: height as usize,
+        full_pixels,
+        full_width: source_width as usize,
+        full_height: source_height as usize,
     });
+
+    Ok(HttpResponse {
+        status: 200,
+        content_type: "application/json".to_string(),
+        body: format!(
+            r#"{{"width":{width},"height":{height},"source_width":{source_width},"source_height":{source_height},"preview_long_edge":{PREVIEW_LONG_EDGE}}}"#
+        )
+        .into_bytes(),
+    })
+}
+
+fn resize_for_preview(image: &RgbImage, preview_long_edge: u32) -> RgbImage {
+    let (width, height) = image.dimensions();
+    let long_edge = width.max(height);
+    if preview_long_edge == 0 || long_edge <= preview_long_edge {
+        return image.clone();
+    }
+
+    let scale = preview_long_edge as f32 / long_edge as f32;
+    let preview_width = ((width as f32 * scale).round() as u32).max(1);
+    let preview_height = ((height as f32 * scale).round() as u32).max(1);
+
+    image::imageops::resize(image, preview_width, preview_height, FilterType::Triangle)
+}
+
+fn render_endpoint(body: &[u8], state: &ServerState) -> Result<HttpResponse, ServerError> {
+    let request: RenderRequest = serde_json::from_slice(body)
+        .map_err(|error| ServerError::new(400, format!("Invalid render JSON: {error}")))?;
+    let image = state
+        .image
+        .as_ref()
+        .ok_or_else(|| ServerError::new(400, "No image loaded in Rust yet"))?;
+    let params = request.params.into_render_params();
+    let rendered = render_rgb_with_cache(
+        &image.pixels,
+        image.width,
+        image.height,
+        &params,
+        Some(&image.analysis_cache),
+    );
+    let output = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_fn(
+        image.width as u32,
+        image.height as u32,
+        |x, y| {
+            let pixel = rendered.pixels[y as usize * rendered.width + x as usize];
+            Rgb([pixel.r, pixel.g, pixel.b])
+        },
+    );
 
     let mut encoded = Cursor::new(Vec::new());
     DynamicImage::ImageRgb8(output)
@@ -91,8 +190,54 @@ fn render_endpoint(body: &[u8]) -> Result<HttpResponse, ServerError> {
         .map_err(|error| ServerError::new(500, format!("Could not encode preview: {error}")))?;
 
     let json = format!(
-        r#"{{"image_data_url":"data:image/png;base64,{}"}}"#,
-        encode_base64(encoded.get_ref())
+        r#"{{"image_data_url":"data:image/png;base64,{}","request_id":{}}}"#,
+        encode_base64(encoded.get_ref()),
+        request.request_id
+    );
+
+    Ok(HttpResponse {
+        status: 200,
+        content_type: "application/json".to_string(),
+        body: json.into_bytes(),
+    })
+}
+
+fn export_endpoint(body: &[u8], state: &ServerState) -> Result<HttpResponse, ServerError> {
+    let request: RenderRequest = serde_json::from_slice(body)
+        .map_err(|error| ServerError::new(400, format!("Invalid export JSON: {error}")))?;
+    let image = state
+        .image
+        .as_ref()
+        .ok_or_else(|| ServerError::new(400, "No image loaded in Rust yet"))?;
+    let params = request.params.into_render_params();
+    let full_cache =
+        RenderAnalysisCache::build(&image.full_pixels, image.full_width, image.full_height);
+    let rendered = render_rgb_with_cache(
+        &image.full_pixels,
+        image.full_width,
+        image.full_height,
+        &params,
+        Some(&full_cache),
+    );
+    let output = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_fn(
+        image.full_width as u32,
+        image.full_height as u32,
+        |x, y| {
+            let pixel = rendered.pixels[y as usize * rendered.width + x as usize];
+            Rgb([pixel.r, pixel.g, pixel.b])
+        },
+    );
+
+    let mut encoded = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(output)
+        .write_to(&mut encoded, ImageFormat::Png)
+        .map_err(|error| ServerError::new(500, format!("Could not encode export: {error}")))?;
+
+    let json = format!(
+        r#"{{"image_data_url":"data:image/png;base64,{}","width":{},"height":{}}}"#,
+        encode_base64(encoded.get_ref()),
+        image.full_width,
+        image.full_height
     );
 
     Ok(HttpResponse {
@@ -109,16 +254,30 @@ fn static_endpoint(path: &str) -> Result<HttpResponse, ServerError> {
         "/src/styles.css" => PathBuf::from("frontend/src/styles.css"),
         _ => return Err(ServerError::new(404, "Not found")),
     };
+    let static_path = resolve_static_path(&relative_path);
 
-    let body = std::fs::read(&relative_path)
+    let body = std::fs::read(&static_path)
         .map_err(|error| ServerError::new(404, format!("Could not read static file: {error}")))?;
-    let content_type = content_type_for(&relative_path).to_string();
+    let content_type = content_type_for(&static_path).to_string();
 
     Ok(HttpResponse {
         status: 200,
         content_type,
         body,
     })
+}
+
+fn resolve_static_path(relative_path: &Path) -> PathBuf {
+    if relative_path.exists() {
+        return relative_path.to_path_buf();
+    }
+
+    let parent_relative_path = Path::new("..").join(relative_path);
+    if parent_relative_path.exists() {
+        return parent_relative_path;
+    }
+
+    relative_path.to_path_buf()
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
@@ -337,9 +496,31 @@ impl ServerError {
     }
 }
 
+#[derive(Debug, Default)]
+struct ServerState {
+    image: Option<StoredImage>,
+}
+
+#[derive(Debug)]
+struct StoredImage {
+    analysis_cache: RenderAnalysisCache,
+    pixels: Vec<RgbPixel>,
+    width: usize,
+    height: usize,
+    full_pixels: Vec<RgbPixel>,
+    full_width: usize,
+    full_height: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct LoadImageRequest {
+    image_data_url: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct RenderRequest {
-    image_data_url: String,
+    #[serde(default)]
+    request_id: u64,
     params: RenderParamsDto,
 }
 

@@ -28,7 +28,7 @@ pub fn run() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "Raw Photo Editor Tester",
+        "Lumiere Tester",
         options,
         Box::new(|cc| Ok(Box::new(TesterApp::new(cc)))),
     )

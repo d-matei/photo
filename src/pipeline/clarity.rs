@@ -22,6 +22,7 @@ algorithm feels when used as the clarity tool.
 
 use crate::pipeline::color::RgbPixel;
 use crate::pipeline::contrast::{adjust_contrast_value, ContrastConfig};
+use crate::pipeline::parallel::map_enumerated_collect;
 use crate::pipeline::saturation::adjust_saturation_pixel;
 
 const LOCAL_BOOST_RESPONSE_EXPONENT: f32 = 0.7;
@@ -70,31 +71,98 @@ pub fn apply_clarity_rgb(
         return pixels.to_vec();
     }
 
-    let width = width.min(pixels.len());
-    let height = height.min(pixels.len() / width.max(1));
-    let analysis_map = build_local_analysis_map(
-        analysis_pixels,
+    let analysis = ClarityAnalysis::build(analysis_pixels, width, height, amount, config);
+
+    apply_clarity_rgb_with_analysis(
+        pixels,
         width,
         height,
-        clarity_block_size(amount, config.block_size),
-        amount > 0.0,
-    );
+        amount,
+        config,
+        contrast_config,
+        &analysis,
+    )
+}
 
-    pixels
-        .iter()
-        .zip(analysis_map.iter())
-        .map(|(&pixel, analysis)| {
-            let local_strength =
-                clarity_signed_response(amount) * local_boost_response(analysis.boost);
-            apply_local_clarity(
-                pixel,
-                local_strength,
-                analysis.reference,
-                config,
-                contrast_config,
-            )
-        })
-        .collect()
+pub fn apply_clarity_rgb_with_analysis(
+    pixels: &[RgbPixel],
+    width: usize,
+    height: usize,
+    amount: f32,
+    config: ClarityConfig,
+    contrast_config: ContrastConfig,
+    analysis: &ClarityAnalysis,
+) -> Vec<RgbPixel> {
+    if amount == 0.0 || pixels.is_empty() || width == 0 || height == 0 {
+        return pixels.to_vec();
+    }
+
+    let width = width.min(pixels.len());
+    let height = height.min(pixels.len() / width.max(1));
+    if !analysis.matches(width, height, amount, config) {
+        return pixels.to_vec();
+    }
+
+    let analysis_map = &analysis.map[..width * height];
+
+    map_enumerated_collect(&pixels[..width * height], |index, pixel| {
+        let analysis = &analysis_map[index];
+        let local_strength = clarity_signed_response(amount) * local_boost_response(analysis.boost);
+        apply_local_clarity(
+            *pixel,
+            local_strength,
+            analysis.reference,
+            config,
+            contrast_config,
+        )
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClarityAnalysis {
+    map: Vec<LocalAnalysis>,
+    width: usize,
+    height: usize,
+    block_size: usize,
+    include_nearby_zones: bool,
+}
+
+impl ClarityAnalysis {
+    pub fn build(
+        analysis_pixels: &[RgbPixel],
+        width: usize,
+        height: usize,
+        amount: f32,
+        config: ClarityConfig,
+    ) -> Self {
+        let width = width.min(analysis_pixels.len());
+        let height = height.min(analysis_pixels.len() / width.max(1));
+        let block_size = clarity_block_size(amount, config.block_size);
+        let include_nearby_zones = amount > 0.0;
+        let map = build_local_analysis_map(
+            analysis_pixels,
+            width,
+            height,
+            block_size,
+            include_nearby_zones,
+        );
+
+        Self {
+            map,
+            width,
+            height,
+            block_size,
+            include_nearby_zones,
+        }
+    }
+
+    pub fn matches(&self, width: usize, height: usize, amount: f32, config: ClarityConfig) -> bool {
+        self.width == width
+            && self.height == height
+            && self.block_size == clarity_block_size(amount, config.block_size)
+            && self.include_nearby_zones == (amount > 0.0)
+            && self.map.len() == width.saturating_mul(height)
+    }
 }
 
 fn apply_local_clarity(
@@ -227,7 +295,7 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct LocalAnalysis {
     boost: f32,
     reference: f32,
