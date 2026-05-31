@@ -1,119 +1,64 @@
 # Lumiere
 
-Backend-first foundation for a Lightroom-like photo editor.
+Lumiere is a Rust-powered desktop photo editor built with a Tauri shell and a dependency-free frontend.
 
-## Goals
+## Current App
 
-- Non-destructive editing pipeline
-- RAW ingest and decode layer
-- Global adjustments
-- Local adjustments and masking
-- Color grading tools
-- Export pipeline for final renders
+- Desktop shell: Tauri
+- Image processing backend: Rust
+- Frontend: HTML, CSS, and JavaScript served by the local Rust backend
+- Supported preview/import formats: common browser/image formats such as JPEG and PNG
+- Export: full-resolution rendered PNG
 
-## Stack Direction
+## Source Layout
 
-- Core engine: Rust
-- Current tuning app: native Rust tester
-- Current connected app: web frontend served by the Rust backend
-- Future app shell: Tauri or another desktop shell once the algorithms and interface settle
-
-## Project Split
-
-The repository is now organized around a simple two-person collaboration model:
-
-- `backend`
-  Rust image engine, adjustment math, render pipeline, preview/export logic
-- `frontend`
-  future user-facing interface and interaction layer
-- `docs`
-  shared contract between frontend and backend so both sides can work in parallel
-
-## Current Structure
-
-- `src/engine`
-  backend editor/session state
-- `src/io`
-  backend file ingest boundaries
 - `src/pipeline`
-  backend adjustment algorithms and render stages
-- `src/tester.rs`
-  native Rust tuning app for algorithm development
+  Adjustment algorithms and render pipeline.
+- `src/server.rs`
+  Local preview/export server used by the Tauri app.
 - `frontend`
-  dedicated workspace for the future UI
-- `docs/integration-contract.md`
-  agreed responsibilities and data boundary between UI and engine
-- `playground`
-  older browser prototype kept only as reference
-- `curve_viewer`
-  helper tool for curve visualization
+  Final user interface and bundled assets.
+- `src-tauri`
+  Desktop app packaging, icon, permissions, and Tauri entry point.
+- `docs`
+  Backend/frontend integration notes.
 
-## Ownership Suggestion
+## Build
 
-- Backend owner
-  image pipeline, adjustment behavior, preview render, export, file handling
-- Frontend owner
-  layout, controls, panels, image viewer, interaction flow, presets UX, tool organization
-
-## Planned Adjustment Areas
-
-- Exposure
-- Saturation
-- Vibrance
-- Contrast
-- Dehaze
-- Clarity
-- Texture
-- Masking tools
-- Color grading tools
-
-## Working Agreement
-
-- The Rust code in `src/` is the source of truth for image behavior.
-- The frontend should not reimplement the adjustment math.
-- The frontend should send parameter values and receive preview/export results from the backend layer.
-- The native Rust tester stays available as the fast internal tuning tool while the real frontend is being built.
-
-## Running The App
-
-Run the connected frontend/backend app:
+Install the Tauri CLI once:
 
 ```powershell
-cargo run --release -- serve
+cargo install tauri-cli --version "^2"
 ```
 
-Then open:
+Build the Windows installer:
+
+```powershell
+cd src-tauri
+cargo tauri build --bundles nsis
+```
+
+The installer is created at:
 
 ```text
-http://127.0.0.1:7878
+src-tauri/target/release/bundle/nsis/Lumiere_0.1.0_x64-setup.exe
 ```
 
-Run the app-style window:
+## Development
 
-```powershell
-cargo run --release -- app
-```
-
-On Windows with Chrome installed, this opens the editor in a standalone app window without browser tabs or an address bar. You can also double-click `RawPhotoEditor-App.bat`.
-
-Run the Tauri desktop wrapper:
+Run the desktop app in development mode:
 
 ```powershell
 cd src-tauri
 cargo run
 ```
 
-Build the Tauri desktop app:
+Run a backend check:
 
 ```powershell
-cd src-tauri
-cargo tauri build
+cargo check --release
 ```
 
-Run the native Rust algorithm tester:
+## Repository Hygiene
 
-```powershell
-cargo run --release
-```
-
-The connected frontend currently sends the loaded image, global adjustments, and masks to Rust. Rust renders the preview through `src/pipeline/render.rs` and returns the edited preview image.
+Generated build folders such as `target/` and `src-tauri/target/` are intentionally ignored and should not be committed.

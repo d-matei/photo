@@ -248,23 +248,44 @@ fn export_endpoint(body: &[u8], state: &ServerState) -> Result<HttpResponse, Ser
 }
 
 fn static_endpoint(path: &str) -> Result<HttpResponse, ServerError> {
-    let relative_path = match path {
-        "/" | "/index.html" => PathBuf::from("frontend/index.html"),
-        "/src/app.js" => PathBuf::from("frontend/src/app.js"),
-        "/src/styles.css" => PathBuf::from("frontend/src/styles.css"),
+    let asset = match path {
+        "/" | "/index.html" => StaticAsset {
+            path: PathBuf::from("frontend/index.html"),
+            embedded: include_bytes!("../frontend/index.html"),
+        },
+        "/src/app.js" => StaticAsset {
+            path: PathBuf::from("frontend/src/app.js"),
+            embedded: include_bytes!("../frontend/src/app.js"),
+        },
+        "/src/styles.css" => StaticAsset {
+            path: PathBuf::from("frontend/src/styles.css"),
+            embedded: include_bytes!("../frontend/src/styles.css"),
+        },
+        "/public/fonts/Nexa-ExtraLight.ttf" => StaticAsset {
+            path: PathBuf::from("frontend/public/fonts/Nexa-ExtraLight.ttf"),
+            embedded: include_bytes!("../frontend/public/fonts/Nexa-ExtraLight.ttf"),
+        },
+        "/public/fonts/Nexa-Heavy.ttf" => StaticAsset {
+            path: PathBuf::from("frontend/public/fonts/Nexa-Heavy.ttf"),
+            embedded: include_bytes!("../frontend/public/fonts/Nexa-Heavy.ttf"),
+        },
         _ => return Err(ServerError::new(404, "Not found")),
     };
-    let static_path = resolve_static_path(&relative_path);
 
-    let body = std::fs::read(&static_path)
-        .map_err(|error| ServerError::new(404, format!("Could not read static file: {error}")))?;
-    let content_type = content_type_for(&static_path).to_string();
+    let static_path = resolve_static_path(&asset.path);
+    let body = std::fs::read(&static_path).unwrap_or_else(|_| asset.embedded.to_vec());
+    let content_type = content_type_for(&asset.path).to_string();
 
     Ok(HttpResponse {
         status: 200,
         content_type,
         body,
     })
+}
+
+struct StaticAsset {
+    path: PathBuf,
+    embedded: &'static [u8],
 }
 
 fn resolve_static_path(relative_path: &Path) -> PathBuf {
@@ -366,6 +387,7 @@ fn content_type_for(path: &Path) -> &'static str {
         Some("html") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("js") => "application/javascript; charset=utf-8",
+        Some("ttf") => "font/ttf",
         _ => "application/octet-stream",
     }
 }

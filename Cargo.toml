@@ -7,13 +7,7 @@ edition = "2021"
 name = "raw_photo_editor"
 path = "src/lib.rs"
 
-[[bin]]
-name = "raw-photo-editor"
-path = "src/main.rs"
-
 [dependencies]
-eframe = "0.31"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp", "bmp"] }
-rfd = "0.15"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
