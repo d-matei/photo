@@ -196,10 +196,10 @@ button:disabled {
 
 .app-title {
   color: #ffffff;
-  font-family: "Nexa", "Segoe UI", Arial, sans-serif;
+  font-family: "Bauhaus 93", "Nexa", "Segoe UI", Arial, sans-serif;
   font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 0.015em;
+  font-weight: 400;
+  letter-spacing: 0.035em;
   line-height: 1;
   text-transform: none;
   white-space: nowrap;
