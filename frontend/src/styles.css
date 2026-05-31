@@ -143,6 +143,7 @@ button:disabled {
 .brand-bar,
 .topbar,
 .history-actions,
+.brand-identity,
 .slider-label-row,
 .topbar-actions,
 .section-heading-row {
@@ -157,6 +158,44 @@ button:disabled {
   gap: 16px;
 }
 
+.brand-identity {
+  gap: 11px;
+}
+
+.brand-logo {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 42px;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #f7f4ee;
+  box-shadow: inset 0 0 18px rgba(23, 26, 31, 0.08), 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.brand-logo::before {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: conic-gradient(#ff5a2c, #f7c600, #19b86d, #10b9e8, #2457ff, #d735ca, #ff5a2c);
+  content: "";
+  mask: radial-gradient(circle, transparent 0 45%, #000 47% 100%);
+  -webkit-mask: radial-gradient(circle, transparent 0 45%, #000 47% 100%);
+}
+
+.brand-logo span {
+  position: absolute;
+  left: 16px;
+  top: 11px;
+  width: 12px;
+  height: 20px;
+  border-right: 7px solid #191b20;
+  border-bottom: 7px solid #191b20;
+  border-radius: 0 0 8px 0;
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
+}
+
 .eyebrow,
 .app-title {
   margin: 0 0 4px;
@@ -169,9 +208,9 @@ button:disabled {
 .app-title {
   color: #ffffff;
   font-family: "Bauhaus 93", "Nexa", "Segoe UI", Arial, sans-serif;
-  font-size: 38px;
-  font-weight: 400;
-  letter-spacing: 0.2em;
+  font-size: 36px;
+  font-weight: 300;
+  letter-spacing: 0.115em;
   text-transform: none;
 }
 
