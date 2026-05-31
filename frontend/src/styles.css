@@ -23,6 +23,9 @@
   --muted: #a8b0bd;
   --accent: #e1fcfb;
   --accent-strong: #e1fcfb;
+  --slider-fill: #e7e1d4;
+  --slider-thumb: #e7e1d4;
+  --slider-thumb-hover: #fff9ea;
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
 }
 
@@ -165,10 +168,10 @@ button:disabled {
 
 .app-title {
   color: #ffffff;
-  font-family: "Nexa", "Segoe UI", Arial, sans-serif;
+  font-family: "Bauhaus 93", "Nexa", "Segoe UI", Arial, sans-serif;
   font-size: 38px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 400;
+  letter-spacing: 0.2em;
   text-transform: none;
 }
 
@@ -285,8 +288,8 @@ input[type="range"] {
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    var(--accent-strong) 0%,
-    var(--accent-strong) var(--range-percent),
+    var(--slider-fill) 0%,
+    var(--slider-fill) var(--range-percent),
     #555d69 var(--range-percent),
     #555d69 100%
   );
@@ -309,11 +312,11 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: -5px;
   border: 0;
   border-radius: 2px;
-  background: #33a19b;
+  background: var(--slider-thumb);
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
-  background: #3db4ad;
+  background: var(--slider-thumb-hover);
 }
 
 input[type="range"]::-moz-range-track {
@@ -325,15 +328,15 @@ input[type="range"]::-moz-range-track {
 input[type="range"]::-moz-range-thumb {
   width: 14px;
   height: 14px;
-  background: #33a19b;
-  border-color: #33a19b;
+  background: var(--slider-thumb);
+  border-color: var(--slider-thumb);
   border-radius: 2px;
 }
 
 input[type="range"]::-moz-range-progress {
   height: 4px;
   border-radius: 2px;
-  background: var(--accent-strong);
+  background: var(--slider-fill);
 }
 
 .hue-slider input[type="range"] {
@@ -485,14 +488,14 @@ input[type="range"]::-moz-range-progress {
 
 .color-chip-row {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 5px;
 }
 
 .color-chip {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   justify-self: center;
   padding: 0;
   border: 0;
@@ -503,7 +506,7 @@ input[type="range"]::-moz-range-progress {
 
 .color-chip::after {
   position: absolute;
-  inset: 9px;
+  inset: 7px;
   content: "";
   border-radius: 999px;
   background: #191b20;
@@ -514,9 +517,9 @@ input[type="range"]::-moz-range-progress {
 }
 
 .color-chip.is-active::after {
-  inset: 8px;
+  inset: 6px;
   background: #f1f5f7;
-  box-shadow: 0 0 0 3px rgba(25, 27, 32, 0.92);
+  box-shadow: 0 0 0 2px rgba(25, 27, 32, 0.92);
 }
 
 .mixer-slider-stack {
